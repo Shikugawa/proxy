@@ -14,86 +14,166 @@
  */
 
 #include "extensions/stackdriver/metric/registry.h"
+
+#include <fstream>
+#include <sstream>
+
 #include "extensions/stackdriver/common/constants.h"
 #include "google/api/monitored_resource.pb.h"
+#include "grpcpp/grpcpp.h"
 
 namespace Extensions {
 namespace Stackdriver {
 namespace Metric {
 
+namespace {
+
+class GoogleUserProjHeaderInterceptor : public grpc::experimental::Interceptor {
+ public:
+  GoogleUserProjHeaderInterceptor(const std::string& project_id)
+      : project_id_(project_id) {}
+
+  virtual void Intercept(grpc::experimental::InterceptorBatchMethods* methods) {
+    if (methods->QueryInterceptionHookPoint(
+            grpc::experimental::InterceptionHookPoints::
+                PRE_SEND_INITIAL_METADATA)) {
+      auto* metadata_map = methods->GetSendInitialMetadata();
+      if (metadata_map != nullptr) {
+        metadata_map->insert(
+            std::make_pair("x-goog-user-project", project_id_));
+      }
+    }
+    methods->Proceed();
+  }
+
+ private:
+  const std::string& project_id_;
+};
+
+class GoogleUserProjHeaderInterceptorFactory
+    : public grpc::experimental::ClientInterceptorFactoryInterface {
+ public:
+  GoogleUserProjHeaderInterceptorFactory(const std::string& project_id)
+      : project_id_(project_id) {}
+
+  virtual grpc::experimental::Interceptor* CreateClientInterceptor(
+      grpc::experimental::ClientRpcInfo*) override {
+    return new GoogleUserProjHeaderInterceptor(project_id_);
+  }
+
+ private:
+  std::string project_id_;
+};
+
+}  // namespace
+
 using namespace Extensions::Stackdriver::Common;
 using namespace opencensus::exporters::stats;
 using namespace opencensus::stats;
-using namespace stackdriver::common;
-using namespace google::api;
-
-// Gets monitored resource proto based on the type and node metadata info.
-// Only two types of monitored resource could be returned: k8s_container or
-// k8s_pod.
-MonitoredResource getMonitoredResource(
-    const std::string &monitored_resource_type,
-    const NodeInfo &local_node_info) {
-  google::api::MonitoredResource monitored_resource;
-  monitored_resource.set_type(kContainerMonitoredResource);
-  (*monitored_resource.mutable_labels())[kProjectIDLabel] =
-      local_node_info.platform_metadata().gcp_project();
-  (*monitored_resource.mutable_labels())[kLocationLabel] =
-      local_node_info.platform_metadata().gcp_cluster_location();
-  (*monitored_resource.mutable_labels())[kClusterNameLabel] =
-      local_node_info.platform_metadata().gcp_cluster_name();
-  (*monitored_resource.mutable_labels())[kNamespaceNameLabel] =
-      local_node_info.namespace_();
-  (*monitored_resource.mutable_labels())[kPodNameLabel] =
-      local_node_info.name();
-
-  if (monitored_resource_type == kPodMonitoredResource) {
-    // no need to fill in container_name for pod monitored resource.
-    return monitored_resource;
-  }
-
-  // Fill in container_name of k8s_container monitored resource.
-  // If no container listed in NodeInfo, fill in the default container name
-  // "istio-proxy".
-  if (local_node_info.ports_to_containers().empty()) {
-    (*monitored_resource.mutable_labels())[kContainerNameLabel] =
-        kIstioProxyContainerName;
-  } else {
-    (*monitored_resource.mutable_labels())[kContainerNameLabel] =
-        local_node_info.ports_to_containers().begin()->second;
-  }
-  return monitored_resource;
-}
+using wasm::common::NodeInfo;
 
 // Gets opencensus stackdriver exporter options.
-StackdriverOptions getStackdriverOptions(const NodeInfo &local_node_info) {
+StackdriverOptions getStackdriverOptions(
+    const wasm::common::NodeInfo& local_node_info,
+    const ::Extensions::Stackdriver::Common::StackdriverStubOption&
+        stub_option) {
   StackdriverOptions options;
-  options.project_id = local_node_info.platform_metadata().gcp_project();
+  auto platform_metadata = local_node_info.platform_metadata();
+  options.project_id = platform_metadata[kGCPProjectKey];
+
+  auto ssl_creds_options = grpc::SslCredentialsOptions();
+  std::ifstream file(stub_option.test_root_pem_path.empty()
+                         ? kDefaultRootCertFile
+                         : stub_option.test_root_pem_path);
+  if (!file.fail()) {
+    std::stringstream file_string;
+    file_string << file.rdbuf();
+    ssl_creds_options.pem_root_certs = file_string.str();
+  }
+  auto channel_creds = grpc::SslCredentials(ssl_creds_options);
+
+  if (!stub_option.sts_port.empty()) {
+    ::grpc::experimental::StsCredentialsOptions sts_options;
+    std::string token_path = stub_option.test_token_path.empty()
+                                 ? kSTSSubjectTokenPath
+                                 : stub_option.test_token_path;
+    ::Extensions::Stackdriver::Common::setSTSCallCredentialOptions(
+        &sts_options, stub_option.sts_port, token_path);
+    auto call_creds = grpc::experimental::StsCredentials(sts_options);
+    grpc::ChannelArguments args;
+    std::vector<
+        std::unique_ptr<grpc::experimental::ClientInterceptorFactoryInterface>>
+        creators;
+    auto header_factory =
+        std::make_unique<GoogleUserProjHeaderInterceptorFactory>(
+            options.project_id);
+    creators.push_back(std::move(header_factory));
+    // When STS is turned on, first check if secure_endpoint is set or not,
+    // which indicates whether this is for testing senario. If not set, check
+    // for monitoring_endpoint override, which indicates a different SD backend
+    // endpoint, such as staging.
+    std::string monitoring_endpoint = stub_option.default_endpoint;
+    if (!stub_option.secure_endpoint.empty()) {
+      monitoring_endpoint = stub_option.secure_endpoint;
+    } else if (!stub_option.monitoring_endpoint.empty()) {
+      monitoring_endpoint = stub_option.monitoring_endpoint;
+    }
+    auto channel = ::grpc::experimental::CreateCustomChannelWithInterceptors(
+        monitoring_endpoint,
+        grpc::CompositeChannelCredentials(channel_creds, call_creds), args,
+        std::move(creators));
+    options.metric_service_stub =
+        google::monitoring::v3::MetricService::NewStub(channel);
+  } else if (!stub_option.secure_endpoint.empty()) {
+    auto channel =
+        grpc::CreateChannel(stub_option.secure_endpoint, channel_creds);
+    options.metric_service_stub =
+        google::monitoring::v3::MetricService::NewStub(channel);
+  } else if (!stub_option.insecure_endpoint.empty()) {
+    auto channel = grpc::CreateChannel(stub_option.insecure_endpoint,
+                                       grpc::InsecureChannelCredentials());
+    options.metric_service_stub =
+        google::monitoring::v3::MetricService::NewStub(channel);
+  } else if (!stub_option.monitoring_endpoint.empty()) {
+    auto channel = ::grpc::CreateChannel(stub_option.monitoring_endpoint,
+                                         ::grpc::GoogleDefaultCredentials());
+    options.metric_service_stub =
+        google::monitoring::v3::MetricService::NewStub(channel);
+  }
+
+  std::string server_type = kContainerMonitoredResource;
+  std::string client_type = kPodMonitoredResource;
+  auto iter = platform_metadata.find(kGCPClusterNameKey);
+  if (platform_metadata.end() == iter) {
+    // if there is no cluster name, then this is a gce_instance
+    server_type = kGCEInstanceMonitoredResource;
+    client_type = kGCEInstanceMonitoredResource;
+  }
 
   // Get server and client monitored resource.
-  auto server_monitored_resource =
-      getMonitoredResource(kContainerMonitoredResource, local_node_info);
-  auto client_monitored_resource =
-      getMonitoredResource(kPodMonitoredResource, local_node_info);
-
-  // TODO: Add per view monitored resource option and corresponding test once
-  // https://github.com/envoyproxy/envoy/pull/7622 reaches istio/proxy.
-  // options.monitored_resource[kServerRequestCountView] =
-  // server_monitored_resource;
-  // options.monitored_resource[kServerRequestBytesView] =
-  // server_monitored_resource;
-  // options.monitored_resource[kServerResponseBytesView] =
-  // server_monitored_resource;
-  // options.monitored_resource[kServerResponseLatenciesView] =
-  // server_monitored_resource;
-  // options.monitored_resource[kClientRequestCountView] =
-  // client_monitored_resource;
-  // options.monitored_resource[kClientRequestBytesView] =
-  // client_monitored_resource;
-  // options.monitored_resource[kClientResponseBytesView] =
-  // client_monitored_resource;
-  // options.monitored_resource[kClientRoundtripLatenciesView] =
-  // client_monitored_resource;
-
+  google::api::MonitoredResource server_monitored_resource;
+  Common::getMonitoredResource(server_type, local_node_info,
+                               &server_monitored_resource);
+  google::api::MonitoredResource client_monitored_resource;
+  Common::getMonitoredResource(client_type, local_node_info,
+                               &client_monitored_resource);
+  options.per_metric_monitored_resource[kServerRequestCountView] =
+      server_monitored_resource;
+  options.per_metric_monitored_resource[kServerRequestBytesView] =
+      server_monitored_resource;
+  options.per_metric_monitored_resource[kServerResponseBytesView] =
+      server_monitored_resource;
+  options.per_metric_monitored_resource[kServerResponseLatenciesView] =
+      server_monitored_resource;
+  options.per_metric_monitored_resource[kClientRequestCountView] =
+      client_monitored_resource;
+  options.per_metric_monitored_resource[kClientRequestBytesView] =
+      client_monitored_resource;
+  options.per_metric_monitored_resource[kClientResponseBytesView] =
+      client_monitored_resource;
+  options.per_metric_monitored_resource[kClientRoundtripLatenciesView] =
+      client_monitored_resource;
+  options.metric_name_prefix = kIstioMetricPrefix;
   return options;
 }
 
@@ -123,32 +203,50 @@ StackdriverOptions getStackdriverOptions(const NodeInfo &local_node_info) {
     view_descriptor.RegisterForExport();                            \
   }
 
-#define ADD_TAGS                                     \
-  .add_column(requestOperationKey())                 \
-      .add_column(requestProtocolKey())              \
-      .add_column(serviceAuthenticationPolicyKey())  \
-      .add_column(meshUIDKey())                      \
-      .add_column(destinationServiceNameKey())       \
-      .add_column(destinationServiceNamespaceKey())  \
-      .add_column(destinationPortKey())              \
-      .add_column(responseCodeKey())                 \
-      .add_column(sourcePrincipalKey())              \
-      .add_column(sourceWorkloadNameKey())           \
-      .add_column(sourceWorkloadNamespaceKey())      \
-      .add_column(sourceOwnerKey())                  \
-      .add_column(destinationPrincipalKey())         \
-      .add_column(destinationWorkloadNameKey())      \
-      .add_column(destinationWorkloadNamespaceKey()) \
-      .add_column(destinationOwnerKey())
+#define REGISTER_BYTES_DISTRIBUTION_VIEW(_v)                        \
+  void register##_v##View() {                                       \
+    const ViewDescriptor view_descriptor =                          \
+        ViewDescriptor()                                            \
+            .set_name(k##_v##View)                                  \
+            .set_measure(k##_v##Measure)                            \
+            .set_aggregation(Aggregation::Distribution(             \
+                BucketBoundaries::Exponential(7, 1, 10))) ADD_TAGS; \
+    View view(view_descriptor);                                     \
+    view_descriptor.RegisterForExport();                            \
+  }
+
+#define ADD_TAGS                                             \
+  .add_column(requestOperationKey())                         \
+      .add_column(requestProtocolKey())                      \
+      .add_column(serviceAuthenticationPolicyKey())          \
+      .add_column(meshUIDKey())                              \
+      .add_column(destinationServiceNameKey())               \
+      .add_column(destinationServiceNamespaceKey())          \
+      .add_column(destinationPortKey())                      \
+      .add_column(responseCodeKey())                         \
+      .add_column(sourcePrincipalKey())                      \
+      .add_column(sourceWorkloadNameKey())                   \
+      .add_column(sourceWorkloadNamespaceKey())              \
+      .add_column(sourceOwnerKey())                          \
+      .add_column(destinationPrincipalKey())                 \
+      .add_column(destinationWorkloadNameKey())              \
+      .add_column(destinationWorkloadNamespaceKey())         \
+      .add_column(destinationOwnerKey())                     \
+      .add_column(destinationCanonicalServiceNameKey())      \
+      .add_column(destinationCanonicalServiceNamespaceKey()) \
+      .add_column(sourceCanonicalServiceNameKey())           \
+      .add_column(sourceCanonicalServiceNamespaceKey())      \
+      .add_column(destinationCanonicalRevisionKey())         \
+      .add_column(sourceCanonicalRevisionKey())
 
 // Functions to register opencensus views to export.
 REGISTER_COUNT_VIEW(ServerRequestCount)
-REGISTER_DISTRIBUTION_VIEW(ServerRequestBytes)
-REGISTER_DISTRIBUTION_VIEW(ServerResponseBytes)
+REGISTER_BYTES_DISTRIBUTION_VIEW(ServerRequestBytes)
+REGISTER_BYTES_DISTRIBUTION_VIEW(ServerResponseBytes)
 REGISTER_DISTRIBUTION_VIEW(ServerResponseLatencies)
 REGISTER_COUNT_VIEW(ClientRequestCount)
-REGISTER_DISTRIBUTION_VIEW(ClientRequestBytes)
-REGISTER_DISTRIBUTION_VIEW(ClientResponseBytes)
+REGISTER_BYTES_DISTRIBUTION_VIEW(ClientRequestBytes)
+REGISTER_BYTES_DISTRIBUTION_VIEW(ClientResponseBytes)
 REGISTER_DISTRIBUTION_VIEW(ClientRoundtripLatencies)
 
 /*
@@ -220,6 +318,15 @@ TAG_KEY_FUNC(destination_principal, destinationPrincipal)
 TAG_KEY_FUNC(destination_workload_name, destinationWorkloadName)
 TAG_KEY_FUNC(destination_workload_namespace, destinationWorkloadNamespace)
 TAG_KEY_FUNC(destination_owner, destinationOwner)
+TAG_KEY_FUNC(source_canonical_service_name, sourceCanonicalServiceName)
+TAG_KEY_FUNC(source_canonical_service_namespace,
+             sourceCanonicalServiceNamespace)
+TAG_KEY_FUNC(destination_canonical_service_name,
+             destinationCanonicalServiceName)
+TAG_KEY_FUNC(destination_canonical_service_namespace,
+             destinationCanonicalServiceNamespace)
+TAG_KEY_FUNC(source_canonical_revision, sourceCanonicalRevision)
+TAG_KEY_FUNC(destination_canonical_revision, destinationCanonicalRevision)
 
 }  // namespace Metric
 }  // namespace Stackdriver

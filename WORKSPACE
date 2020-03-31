@@ -14,17 +14,15 @@
 #
 ################################################################################
 #
+workspace(name = "io_istio_proxy")
 
 # http_archive is not a native function since bazel 0.19
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load(
     "//:repositories.bzl",
+    "docker_dependencies",
     "googletest_repositories",
     "mixerapi_dependencies",
-)
-load(
-    "//extensions/stackdriver:opencensus/opencensus.bzl",
-    "io_opencensus_cpp",
 )
 
 googletest_repositories()
@@ -36,17 +34,16 @@ bind(
     actual = "//external:ssl",
 )
 
-# When updating envoy sha manually please update the sha in istio.deps file also
+# 1. Determine SHA256 `wget https://github.com/envoyproxy/envoy-wasm/archive/$COMMIT.tar.gz && sha256sum $COMMIT.tar.gz`
+# 2. Update .bazelversion, envoy.bazelrc and .bazelrc if needed.
 #
-# Determine SHA256 `wget https://github.com/envoyproxy/envoy-wasm/archive/COMMIT.tar.gz && sha256sum COMMIT.tar.gz`
-# envoy-wasm commit date: 07/24/2019
-# bazel version: 0.28.0
-ENVOY_SHA = "c4ad8f94a0a959ed94dc6bffa215861974bcd740"
+# envoy-wasm commit time: Wed Mar 20 20:46:00 2020 -0700
+ENVOY_SHA = "d29f7a659ba736aab97697a7bcfc69a71bc66b66"
 
-ENVOY_SHA256 = "c55b82cb815c7f9f5db03a16a8371aa4c4174d9689a53062da0bc21782810779"
+ENVOY_SHA256 = "ffc2b25af02242a95bf0e65b2f9c4ac0248fb07ade6b5bb3517be934340dfec9"
 
-LOCAL_ENVOY_PROJECT = "/PATH/TO/ENVOY"
-
+# To override with local envoy, just pass `--override_repository=envoy=/PATH/TO/ENVOY` to Bazel or
+# persist the option in `user.bazelrc`.
 http_archive(
     name = "envoy",
     sha256 = ENVOY_SHA256,
@@ -54,35 +51,61 @@ http_archive(
     url = "https://github.com/envoyproxy/envoy-wasm/archive/" + ENVOY_SHA + ".tar.gz",
 )
 
-# TODO(silentdai) Use bazel args to select envoy between local or http
-# Uncomment below and comment above http_archive to depends on local envoy.
-#local_repository(
-#     name = "envoy",
-#     path = LOCAL_ENVOY_PROJECT,
-#)
+load("@envoy//bazel:api_binding.bzl", "envoy_api_binding")
+
+envoy_api_binding()
 
 load("@envoy//bazel:api_repositories.bzl", "envoy_api_dependencies")
 
 envoy_api_dependencies()
 
-load("@envoy//bazel:repositories.bzl", "GO_VERSION", "envoy_dependencies")
+load("@envoy//bazel:repositories.bzl", "envoy_dependencies")
 
 envoy_dependencies()
 
-load("@rules_foreign_cc//:workspace_definitions.bzl", "rules_foreign_cc_dependencies")
+load("@envoy//bazel:dependency_imports.bzl", "envoy_dependency_imports")
 
-rules_foreign_cc_dependencies()
+envoy_dependency_imports()
 
-load("@envoy_api//bazel:repositories.bzl", "api_dependencies")
+load("@rules_antlr//antlr:deps.bzl", "antlr_dependencies")
 
-api_dependencies()
+antlr_dependencies(471)
 
-load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
+# Docker dependencies
 
-go_rules_dependencies()
+docker_dependencies()
 
-go_register_toolchains(go_version = GO_VERSION)
+load(
+    "@io_bazel_rules_docker//repositories:repositories.bzl",
+    container_repositories = "repositories",
+)
 
-# TODO(bianpengyuan): remove this when https://github.com/census-instrumentation/opencensus-cpp/issues/334
-# is fixed and merged into upstream.
-io_opencensus_cpp()
+container_repositories()
+
+load("@io_bazel_rules_docker//repositories:deps.bzl", container_deps = "deps")
+
+container_deps()
+
+load(
+    "@io_bazel_rules_docker//container:container.bzl",
+    "container_pull",
+)
+
+container_pull(
+    name = "distroless_cc",
+    # Latest as of 10/21/2019. To update, remove this line, re-build, and copy the suggested digest.
+    digest = "sha256:86f16733f25964c40dcd34edf14339ddbb2287af2f7c9dfad88f0366723c00d7",
+    registry = "gcr.io",
+    repository = "distroless/cc",
+)
+
+container_pull(
+    name = "bionic",
+    # Latest as of 10/21/2019. To update, remove this line, re-build, and copy the suggested digest.
+    digest = "sha256:3e83eca7870ee14a03b8026660e71ba761e6919b6982fb920d10254688a363d4",
+    registry = "index.docker.io",
+    repository = "library/ubuntu",
+    tag = "bionic",
+)
+
+# End of docker dependencies

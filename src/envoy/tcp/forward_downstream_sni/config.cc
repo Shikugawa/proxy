@@ -17,20 +17,12 @@
 
 #include "envoy/registry/registry.h"
 #include "envoy/server/filter_config.h"
-
+#include "src/envoy/tcp/forward_downstream_sni/config.pb.h"
 #include "src/envoy/tcp/forward_downstream_sni/forward_downstream_sni.h"
 
 namespace Envoy {
 namespace Tcp {
 namespace ForwardDownstreamSni {
-
-Network::FilterFactoryCb
-ForwardDownstreamSniNetworkFilterConfigFactory::createFilterFactory(
-    const Json::Object&, Server::Configuration::FactoryContext&) {
-  // Only used in v1 filters.
-  NOT_IMPLEMENTED_GCOVR_EXCL_LINE;
-}
-
 Network::FilterFactoryCb
 ForwardDownstreamSniNetworkFilterConfigFactory::createFilterFactoryFromProto(
     const Protobuf::Message&, Server::Configuration::FactoryContext&) {
@@ -42,7 +34,7 @@ ForwardDownstreamSniNetworkFilterConfigFactory::createFilterFactoryFromProto(
 
 ProtobufTypes::MessagePtr
 ForwardDownstreamSniNetworkFilterConfigFactory::createEmptyConfigProto() {
-  return std::make_unique<ProtobufWkt::Empty>();
+  return std::make_unique<io::istio::tcp::forward_downstream_sni::v1::Config>();
 }
 
 /**

@@ -55,8 +55,6 @@ void Filter::cancelCheck() {
 
 // Makes a Check() call to Mixer.
 void Filter::callCheck() {
-  handler_ = control_.controller()->CreateRequestHandler();
-
   state_ = State::Calling;
   filter_callbacks_->connection().readDisable(true);
   calling_check_ = true;
@@ -134,6 +132,8 @@ Network::FilterStatus Filter::onNewConnection() {
                  filter_callbacks_->connection().remoteAddress()->asString(),
                  filter_callbacks_->connection().localAddress()->asString());
 
+  handler_ = control_.controller()->CreateRequestHandler();
+  handler_->BuildCheckAttributes(this);
   // Wait until onData() is invoked.
   return Network::FilterStatus::Continue;
 }
@@ -211,12 +211,16 @@ bool Filter::GetDestinationIpPort(std::string *str_ip, int *port) const {
       filter_callbacks_->upstreamHost()->address()) {
     return Utils::GetIpPort(filter_callbacks_->upstreamHost()->address()->ip(),
                             str_ip, port);
+  } else {
+    return Utils::GetIpPort(
+        filter_callbacks_->connection().localAddress()->ip(), str_ip, port);
   }
   return false;
 }
 
 bool Filter::GetDestinationUID(std::string *uid) const {
-  if (filter_callbacks_->upstreamHost()) {
+  if (filter_callbacks_->upstreamHost() &&
+      filter_callbacks_->upstreamHost()->metadata()) {
     return Utils::GetDestinationUID(
         *filter_callbacks_->upstreamHost()->metadata(), uid);
   }

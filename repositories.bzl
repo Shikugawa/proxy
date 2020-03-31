@@ -103,11 +103,10 @@ cc_library(
 #
 # To update these...
 # 1) find the ISTIO_API SHA you want in git
-# 2) wget https://github.com/istio/api/archive/ISTIO_API_SHA.tar.gz
-# 3) sha256sum ISTIO_API_SHA.tar.gz
+# 2) wget https://github.com/istio/api/archive/$ISTIO_API_SHA.tar.gz && sha256sum $ISTIO_API_SHA.tar.gz
 #
-ISTIO_API = "36b42252042c0e8b229a0d66059af184c3105f9d"
-ISTIO_API_SHA256 = "20dd68b87a3189da6969504921a2c8c521d78d80232d6643471cd5e5b4fe50a5"
+ISTIO_API = "31d048906d97fb7f6b1fa8e250d3fa07456c5acc"
+ISTIO_API_SHA256 = "5bf68ef13f4b9e769b7ca0a9ce83d9da5263eed9b1223c4cbb388a6ad5520e01"
 GOGOPROTO_RELEASE = "1.2.1"
 GOGOPROTO_SHA256 = "99e423905ba8921e86817607a5294ffeedb66fdd4a85efce5eb2848f715fdb3a"
 
@@ -140,7 +139,7 @@ proto_library(
     visibility = ["//visibility:public"],
     deps = [
         "@com_github_gogo_protobuf//:gogo_proto",
-        "@googleapis//:rpc_status_protos_lib",
+        "@com_google_googleapis//google/rpc:status_proto",
         "@com_google_protobuf//:duration_proto",
         "@com_google_protobuf//:timestamp_proto",
     ],
@@ -165,6 +164,7 @@ proto_library(
     deps = [
         ":mixer_api_protos_lib",
         "@com_github_gogo_protobuf//:gogo_proto",
+        "@com_google_googleapis//google/api:field_behavior_proto",
         "@com_google_protobuf//:duration_proto",
     ],
 )
@@ -187,6 +187,7 @@ proto_library(
     ),
     visibility = ["//visibility:public"],
     deps = [
+        "@com_google_googleapis//google/api:field_behavior_proto",
         "@com_github_gogo_protobuf//:gogo_proto",
     ],
 )
@@ -216,6 +217,25 @@ cc_proto_library(
     visibility = ["//visibility:public"],
     deps = [
         ":jwt_auth_config_proto_lib",
+    ],
+)
+
+proto_library(
+    name = "alpn_filter_config_proto_lib",
+    srcs = glob(
+        ["envoy/config/filter/http/alpn/v2alpha1/*.proto", ],
+    ),
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_gogo_protobuf//:gogo_proto",
+    ],
+)
+
+cc_proto_library(
+    name = "alpn_filter_config_cc_proto",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":alpn_filter_config_proto_lib",
     ],
 )
 
@@ -322,6 +342,10 @@ py_proto_library(
             actual = "@mixerapi_git//:jwt_auth_config_cc_proto",
         )
         native.bind(
+            name = "alpn_filter_config_cc_proto",
+            actual = "@mixerapi_git//:alpn_filter_config_cc_proto",
+        )
+        native.bind(
             name = "tcp_cluster_rewrite_config_cc_proto",
             actual = "@mixerapi_git//:tcp_cluster_rewrite_config_cc_proto",
         )
@@ -329,3 +353,11 @@ py_proto_library(
 def mixerapi_dependencies():
     go_x_tools_imports_repositories()
     mixerapi_repositories()
+
+def docker_dependencies():
+    http_archive(
+        name = "io_bazel_rules_docker",
+        sha256 = "413bb1ec0895a8d3249a01edf24b82fd06af3c8633c9fb833a0cb1d4b234d46d",
+        strip_prefix = "rules_docker-0.12.0",
+        urls = ["https://github.com/bazelbuild/rules_docker/releases/download/v0.12.0/rules_docker-v0.12.0.tar.gz"],
+    )

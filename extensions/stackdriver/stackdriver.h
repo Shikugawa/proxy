@@ -15,15 +15,25 @@
 
 #pragma once
 
-#include "extensions/stackdriver/common/context.h"
-#include "extensions/stackdriver/config/stackdriver_plugin_config.pb.h"
+#include "extensions/common/context.h"
+#include "extensions/common/node_info_cache.h"
+#include "extensions/stackdriver/common/constants.h"
+#include "extensions/stackdriver/config/v1alpha1/stackdriver_plugin_config.pb.h"
+#include "extensions/stackdriver/edges/edge_reporter.h"
+#include "extensions/stackdriver/log/logger.h"
+#include "extensions/stackdriver/metric/record.h"
+
+// OpenCensus is full of unused parameters in metric_service.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 #include "opencensus/exporters/stats/stackdriver/stackdriver_exporter.h"
+#pragma GCC diagnostic pop
 
 #ifndef NULL_PLUGIN
 #include "api/wasm/cpp/proxy_wasm_intrinsics.h"
 #else
 
-#include "extensions/common/wasm/null/null.h"
+#include "extensions/common/wasm/null/null_plugin.h"
 
 namespace Envoy {
 namespace Extensions {
@@ -35,8 +45,13 @@ namespace Plugin {
 
 namespace Stackdriver {
 
+constexpr long int kDefaultEdgeNewReportDurationNanoseconds =
+    60000000000;  // 1m
+constexpr long int kDefaultEdgeEpochReportDurationNanoseconds =
+    600000000000;  // 10m
+
 #ifdef NULL_PLUGIN
-NULL_PLUGIN_ROOT_REGISTRY;
+NULL_PLUGIN_REGISTRY;
 #endif
 
 // StackdriverRootContext is the root context for all streams processed by the
@@ -48,19 +63,63 @@ class StackdriverRootContext : public RootContext {
       : RootContext(id, root_id) {}
   ~StackdriverRootContext() = default;
 
-  void onConfigure(std::unique_ptr<WasmData> configuration) override;
-  void onStart() override;
+  bool onConfigure(size_t) override;
+  bool onStart(size_t) override;
   void onTick() override;
+  bool onDone() override;
 
-  // Get reporter kind of this filter from plugin config.
-  stackdriver::config::PluginConfig::ReporterKind reporterKind();
+  // Get direction of traffic relative to this proxy.
+  bool isOutbound();
+
+  bool useHostHeaderFallback() const { return use_host_header_fallback_; };
+
+  // Records telemetry for the current active stream.
+  void record();
 
  private:
+  // Indicates whether to export server access log or not.
+  bool enableServerAccessLog();
+
+  bool shouldLogThisRequest();
+
+  // Gets peer node info. It checks the node info cache first, and then try to
+  // fetch it from host if cache miss. If cache is disabled, it will fetch from
+  // host directly.
+  ::Wasm::Common::NodeInfoPtr getPeerNode();
+
+  // Indicates whether or not to report edges to Stackdriver.
+  bool enableEdgeReporting();
+
   // Config for Stackdriver plugin.
-  stackdriver::config::PluginConfig config_;
+  stackdriver::config::v1alpha1::PluginConfig config_;
 
   // Local node info extracted from node metadata.
-  stackdriver::common::NodeInfo local_node_info_;
+  wasm::common::NodeInfo local_node_info_;
+
+  // Cache of peer node info.
+  ::Wasm::Common::NodeInfoCache node_info_cache_;
+
+  // Indicates the traffic direction relative to this proxy.
+  ::Wasm::Common::TrafficDirection direction_{
+      ::Wasm::Common::TrafficDirection::Unspecified};
+
+  // Logger records and exports log entries to Stackdriver backend.
+  std::unique_ptr<::Extensions::Stackdriver::Log::Logger> logger_;
+
+  std::unique_ptr<::Extensions::Stackdriver::Edges::EdgeReporter>
+      edge_reporter_;
+
+  long int last_edge_epoch_report_call_nanos_ = 0;
+
+  long int last_edge_new_report_call_nanos_ = 0;
+
+  long int edge_new_report_duration_nanos_ =
+      kDefaultEdgeNewReportDurationNanoseconds;
+
+  long int edge_epoch_report_duration_nanos_ =
+      kDefaultEdgeEpochReportDurationNanoseconds;
+
+  bool use_host_header_fallback_;
 };
 
 // StackdriverContext is per stream context. It has the same lifetime as
@@ -70,25 +129,32 @@ class StackdriverContext : public Context {
   StackdriverContext(uint32_t id, RootContext* root) : Context(id, root) {}
   void onLog() override;
 
-  // Stream filter callbacks.
-  FilterHeadersStatus onRequestHeaders() override;
-  FilterDataStatus onRequestBody(size_t body_buffer_length,
-                                 bool end_of_stream) override;
-  FilterDataStatus onResponseBody(size_t body_buffer_length,
-                                  bool end_of_stream) override;
-
  private:
-  // Request information collected from stream callbacks, used when record
-  // metrics and access logs.
-  ::Extensions::Stackdriver::Common::RequestInfo request_info_;
-
   // Gets root Stackdriver context that this stream Stackdriver context
   // associated with.
   StackdriverRootContext* getRootContext();
 };
 
-static RegisterContextFactory register_StackdriverContext(
-    CONTEXT_FACTORY(StackdriverContext), ROOT_FACTORY(StackdriverRootContext));
+class StackdriverOutboundRootContext : public StackdriverRootContext {
+ public:
+  StackdriverOutboundRootContext(uint32_t id, StringView root_id)
+      : StackdriverRootContext(id, root_id) {}
+};
+
+class StackdriverInboundRootContext : public StackdriverRootContext {
+ public:
+  StackdriverInboundRootContext(uint32_t id, StringView root_id)
+      : StackdriverRootContext(id, root_id) {}
+};
+
+static RegisterContextFactory register_OutboundStackdriverContext(
+    CONTEXT_FACTORY(StackdriverContext),
+    ROOT_FACTORY(StackdriverOutboundRootContext),
+    ::Extensions::Stackdriver::Common::kOutboundRootContextId);
+static RegisterContextFactory register_InboundStackdriverContext(
+    CONTEXT_FACTORY(StackdriverContext),
+    ROOT_FACTORY(StackdriverInboundRootContext),
+    ::Extensions::Stackdriver::Common::kInboundRootContextId);
 
 }  // namespace Stackdriver
 

@@ -14,10 +14,10 @@
  */
 
 #include "src/envoy/tcp/tcp_cluster_rewrite/config.h"
-#include "src/envoy/tcp/tcp_cluster_rewrite/tcp_cluster_rewrite.h"
 
 #include "envoy/registry/registry.h"
 #include "envoy/server/filter_config.h"
+#include "src/envoy/tcp/tcp_cluster_rewrite/tcp_cluster_rewrite.h"
 #include "src/envoy/utils/config.h"
 
 using namespace ::istio::envoy::config::filter::network::tcp_cluster_rewrite;
@@ -25,16 +25,6 @@ using namespace ::istio::envoy::config::filter::network::tcp_cluster_rewrite;
 namespace Envoy {
 namespace Tcp {
 namespace TcpClusterRewrite {
-
-Network::FilterFactoryCb
-TcpClusterRewriteFilterConfigFactory::createFilterFactory(
-    const Json::Object& config_json, Server::Configuration::FactoryContext&) {
-  v2alpha1::TcpClusterRewrite config_pb;
-  if (!Utils::ReadV2Config(config_json, &config_pb)) {
-    throw EnvoyException("Failed to parse JSON config");
-  }
-  return createFilterFactory(config_pb);
-}
 
 Network::FilterFactoryCb
 TcpClusterRewriteFilterConfigFactory::createFilterFactoryFromProto(

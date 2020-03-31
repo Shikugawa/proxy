@@ -48,32 +48,26 @@ Filter::Filter(Control& control)
 }
 
 void Filter::ReadPerRouteConfig(
-    const Router::RouteEntry* entry,
+    const PerRouteServiceConfig& route_cfg,
     ::istio::control::http::Controller::PerRouteConfig* config) {
-  if (entry == nullptr) {
-    return;
+  if (!control_.controller()->LookupServiceConfig(route_cfg.hash)) {
+    control_.controller()->AddServiceConfig(route_cfg.hash, route_cfg.config);
   }
-
-  // Check v2 per-route config.
-  auto route_cfg = entry->perFilterConfigTyped<PerRouteServiceConfig>("mixer");
-  if (route_cfg) {
-    if (!control_.controller()->LookupServiceConfig(route_cfg->hash)) {
-      control_.controller()->AddServiceConfig(route_cfg->hash,
-                                              route_cfg->config);
-    }
-    config->service_config_id = route_cfg->hash;
-    return;
-  }
+  config->service_config_id = route_cfg.hash;
 }
 
-FilterHeadersStatus Filter::decodeHeaders(HeaderMap& headers, bool) {
+FilterHeadersStatus Filter::decodeHeaders(RequestHeaderMap& headers, bool) {
   ENVOY_LOG(debug, "Called Mixer::Filter : {}", __func__);
   request_total_size_ += headers.byteSize();
 
   ::istio::control::http::Controller::PerRouteConfig config;
   auto route = decoder_callbacks_->route();
   if (route) {
-    ReadPerRouteConfig(route->routeEntry(), &config);
+    auto route_cfg =
+        route->perFilterConfigTyped<PerRouteServiceConfig>("mixer");
+    if (route_cfg) {
+      ReadPerRouteConfig(*route_cfg, &config);
+    }
   }
   handler_ = control_.controller()->CreateRequestHandler(config);
 
@@ -107,7 +101,7 @@ FilterDataStatus Filter::decodeData(Buffer::Instance& data, bool end_stream) {
   return FilterDataStatus::Continue;
 }
 
-FilterTrailersStatus Filter::decodeTrailers(HeaderMap& trailers) {
+FilterTrailersStatus Filter::decodeTrailers(RequestTrailerMap& trailers) {
   ENVOY_LOG(debug, "Called Mixer::Filter : {}", __func__);
   request_total_size_ += trailers.byteSize();
   if (state_ == Calling) {
@@ -137,7 +131,7 @@ void Filter::UpdateHeaders(
   }
 }
 
-FilterHeadersStatus Filter::encodeHeaders(HeaderMap& headers, bool) {
+FilterHeadersStatus Filter::encodeHeaders(ResponseHeaderMap& headers, bool) {
   ENVOY_LOG(debug, "Called Mixer::Filter : {} {}", __func__, state_);
   // Init state is possible if a filter prior to mixerfilter interrupts the
   // filter chain
@@ -176,7 +170,7 @@ void Filter::completeCheck(const CheckResponseInfo& info) {
     state_ = Responded;
     decoder_callbacks_->sendLocalReply(
         Code(status_code), route_directive_.direct_response_body(),
-        [this](HeaderMap& headers) {
+        [this](ResponseHeaderMap& headers) {
           UpdateHeaders(headers, route_directive_.response_header_operations());
         },
         absl::nullopt, RcDetails::get().MixerDirectResponse);
@@ -221,9 +215,9 @@ void Filter::onDestroy() {
   }
 }
 
-void Filter::log(const HeaderMap* request_headers,
-                 const HeaderMap* response_headers,
-                 const HeaderMap* response_trailers,
+void Filter::log(const RequestHeaderMap* request_headers,
+                 const ResponseHeaderMap* response_headers,
+                 const ResponseTrailerMap* response_trailers,
                  const StreamInfo::StreamInfo& stream_info) {
   ENVOY_LOG(debug, "Called Mixer::Filter : {}", __func__);
   if (!handler_) {
@@ -233,7 +227,14 @@ void Filter::log(const HeaderMap* request_headers,
 
     // Here Request is rejected by other filters, Mixer filter is not called.
     ::istio::control::http::Controller::PerRouteConfig config;
-    ReadPerRouteConfig(stream_info.routeEntry(), &config);
+    auto route_entry = stream_info.routeEntry();
+    if (route_entry) {
+      auto route_cfg =
+          route_entry->perFilterConfigTyped<PerRouteServiceConfig>("mixer");
+      if (route_cfg) {
+        ReadPerRouteConfig(*route_cfg, &config);
+      }
+    }
     handler_ = control_.controller()->CreateRequestHandler(config);
   }
 

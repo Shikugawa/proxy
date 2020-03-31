@@ -14,6 +14,7 @@
  */
 
 #include "src/envoy/http/jwt_auth/token_extractor.h"
+
 #include "absl/strings/match.h"
 #include "common/common/utility.h"
 #include "common/http/utility.h"
@@ -63,7 +64,7 @@ JwtTokenExtractor::JwtTokenExtractor(const JwtAuthentication &config) {
 }
 
 void JwtTokenExtractor::Extract(
-    const HeaderMap &headers,
+    const RequestHeaderMap &headers,
     std::vector<std::unique_ptr<JwtTokenExtractor::Token>> *tokens) const {
   if (!authorization_issuers_.empty()) {
     const HeaderEntry *entry = headers.Authorization();

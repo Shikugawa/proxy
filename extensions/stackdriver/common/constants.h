@@ -18,75 +18,80 @@ namespace Stackdriver {
 namespace Common {
 
 // Measure names of metrics.
-constexpr char kServerRequestCountMeasure[] =
-    "istio.io/service/server/request_count_measure";
-constexpr char kServerRequestBytesMeasure[] =
-    "istio.io/service/server/request_bytes_measure";
-constexpr char kServerResponseBytesMeasure[] =
-    "istio.io/service/server/response_bytes_measure";
+constexpr char kServerRequestCountMeasure[] = "server/request_count_measure";
+constexpr char kServerRequestBytesMeasure[] = "server/request_bytes_measure";
+constexpr char kServerResponseBytesMeasure[] = "server/response_bytes_measure";
 constexpr char kServerResponseLatenciesMeasure[] =
-    "istio.io/service/server/response_latencies_measure";
-constexpr char kClientRequestCountMeasure[] =
-    "istio.io/service/client/request_count_measure";
-constexpr char kClientRequestBytesMeasure[] =
-    "istio.io/service/client/request_bytes_measure";
-constexpr char kClientResponseBytesMeasure[] =
-    "istio.io/service/client/response_bytes_measure";
+    "server/response_latencies_measure";
+constexpr char kClientRequestCountMeasure[] = "client/request_count_measure";
+constexpr char kClientRequestBytesMeasure[] = "client/request_bytes_measure";
+constexpr char kClientResponseBytesMeasure[] = "client/response_bytes_measure";
 constexpr char kClientRoundtripLatenciesMeasure[] =
-    "istio.io/service/client/roundtrip_latencies_measure";
+    "client/roundtrip_latencies_measure";
 
 // View names of metrics.
-constexpr char kServerRequestCountView[] =
-    "istio.io/service/server/request_count";
-constexpr char kServerRequestBytesView[] =
-    "istio.io/service/server/request_bytes";
-constexpr char kServerResponseBytesView[] =
-    "istio.io/service/server/response_bytes";
-constexpr char kServerResponseLatenciesView[] =
-    "istio.io/service/server/response_latencies";
-constexpr char kClientRequestCountView[] =
-    "istio.io/service/client/request_count";
-constexpr char kClientRequestBytesView[] =
-    "istio.io/service/client/request_bytes";
-constexpr char kClientResponseBytesView[] =
-    "istio.io/service/client/response_bytes";
-constexpr char kClientRoundtripLatenciesView[] =
-    "istio.io/service/client/roundtrip_latencies";
+constexpr char kServerRequestCountView[] = "server/request_count";
+constexpr char kServerRequestBytesView[] = "server/request_bytes";
+constexpr char kServerResponseBytesView[] = "server/response_bytes";
+constexpr char kServerResponseLatenciesView[] = "server/response_latencies";
+constexpr char kClientRequestCountView[] = "client/request_count";
+constexpr char kClientRequestBytesView[] = "client/request_bytes";
+constexpr char kClientResponseBytesView[] = "client/response_bytes";
+constexpr char kClientRoundtripLatenciesView[] = "client/roundtrip_latencies";
+
+// Prefix for Istio metrics.
+constexpr char kIstioMetricPrefix[] = "istio.io/service/";
 
 // Monitored resource
 constexpr char kPodMonitoredResource[] = "k8s_pod";
 constexpr char kContainerMonitoredResource[] = "k8s_container";
+constexpr char kGCEInstanceMonitoredResource[] = "gce_instance";
 constexpr char kProjectIDLabel[] = "project_id";
 constexpr char kLocationLabel[] = "location";
 constexpr char kClusterNameLabel[] = "cluster_name";
 constexpr char kNamespaceNameLabel[] = "namespace_name";
 constexpr char kPodNameLabel[] = "pod_name";
 constexpr char kContainerNameLabel[] = "container_name";
+constexpr char kGCEInstanceIDLabel[] = "instance_id";
+constexpr char kZoneLabel[] = "zone";
 
-// Node metadata
-constexpr char kIstioMetadataKey[] = "istio.io/metadata";
-constexpr char kMetadataPodNameKey[] = "name";
-constexpr char kMetadataNamespaceKey[] = "namespace";
-constexpr char kMetadataOwnerKey[] = "owner";
-constexpr char kMetadataWorkloadNameKey[] = "workload_name";
-constexpr char kMetadataContainersKey[] = "ports_to_containers";
-constexpr char kPlatformMetadataKey[] = "platform_metadata";
-constexpr char kGCPClusterLocationKey[] = "gcp_cluster_location";
-constexpr char kGCPClusterNameKey[] = "gcp_cluster_name";
+// GCP node metadata key
+constexpr char kGCPLocationKey[] = "gcp_location";
+constexpr char kGCPClusterNameKey[] = "gcp_gke_cluster_name";
 constexpr char kGCPProjectKey[] = "gcp_project";
-constexpr char kUpstreamMetadataKey[] = "envoy.wasm.metadata_exchange.upstream";
-constexpr char kDownstreamMetadataKey[] =
-    "envoy.wasm.metadata_exchange.downstream";
-
-// Header keys
-constexpr char kAuthorityHeaderKey[] = ":authority";
-constexpr char kMethodHeaderKey[] = ":method";
+constexpr char kGCPGCEInstanceIDKey[] = "gcp_gce_instance_id";
 
 // Misc
-constexpr double kNanosecondsPerMillisecond = 1000000.0;
 constexpr char kIstioProxyContainerName[] = "istio-proxy";
-constexpr char kMutualTLS[] = "MUTUAL_TLS";
-constexpr char kNone[] = "NONE";
+constexpr double kNanosecondsPerMillisecond = 1000000.0;
+constexpr char kDefaultRootCertFile[] = "/etc/ssl/certs/ca-certificates.crt";
+
+// Stackdriver root context id.
+constexpr char kOutboundRootContextId[] = "stackdriver_outbound";
+constexpr char kInboundRootContextId[] = "stackdriver_inbound";
+
+// Stackdriver service endpoint node metadata key.
+constexpr char kSecureStackdriverEndpointKey[] = "SECURE_STACKDRIVER_ENDPOINT";
+constexpr char kInsecureStackdriverEndpointKey[] =
+    "INSECURE_STACKDRIVER_ENDPOINT";
+constexpr char kMonitoringEndpointKey[] = "STACKDRIVER_MONITORING_ENDPOINT";
+constexpr char kMonitoringExportIntervalKey[] =
+    "STACKDRIVER_MONITORING_EXPORT_INTERVAL_SECS";
+constexpr char kTokenFile[] = "STACKDRIVER_TOKEN_FILE";
+constexpr char kCACertFile[] = "STACKDRIVER_ROOT_CA_FILE";
+
+// Port of security token exchange server (STS).
+constexpr char kSTSPortKey[] = "STS_PORT";
+
+// STS credentials
+constexpr char kSTSSubjectTokenPath[] = "/var/run/secrets/tokens/istio-token";
+constexpr char kSTSSubjectTokenType[] = "urn:ietf:params:oauth:token-type:jwt";
+constexpr char kSTSScope[] = "https://www.googleapis.com/auth/cloud-platform";
+
+// Stackdriver services
+constexpr char kMonitoringService[] = "monitoring.googleapis.com";
+constexpr char kLoggingService[] = "logging.googleapis.com";
+constexpr char kMeshTelemetryService[] = "meshtelemetry.googleapis.com";
 
 }  // namespace Common
 }  // namespace Stackdriver

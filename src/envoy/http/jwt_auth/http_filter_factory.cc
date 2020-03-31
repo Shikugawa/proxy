@@ -29,15 +29,6 @@ namespace Configuration {
 
 class JwtVerificationFilterConfig : public NamedHttpFilterConfigFactory {
  public:
-  Http::FilterFactoryCb createFilterFactory(const Json::Object& config,
-                                            const std::string&,
-                                            FactoryContext& context) override {
-    JwtAuthentication proto_config;
-    MessageUtil::loadFromJson(config.asJsonString(), proto_config,
-                              ProtobufMessage::getNullValidationVisitor());
-    return createFilter(proto_config, context);
-  }
-
   Http::FilterFactoryCb createFilterFactoryFromProto(
       const Protobuf::Message& proto_config, const std::string&,
       FactoryContext& context) override {
@@ -49,7 +40,7 @@ class JwtVerificationFilterConfig : public NamedHttpFilterConfigFactory {
     return ProtobufTypes::MessagePtr{new JwtAuthentication};
   }
 
-  std::string name() override { return Utils::IstioFilterName::kJwt; }
+  std::string name() const override { return Utils::IstioFilterName::kJwt; }
 
  private:
   Http::FilterFactoryCb createFilter(const JwtAuthentication& proto_config,

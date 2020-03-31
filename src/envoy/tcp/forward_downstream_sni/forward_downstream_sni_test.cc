@@ -13,17 +13,15 @@
  * limitations under the License.
  */
 
+#include "src/envoy/tcp/forward_downstream_sni/forward_downstream_sni.h"
+
+#include "common/network/upstream_server_name.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "src/envoy/tcp/forward_downstream_sni/config.h"
 #include "test/mocks/network/mocks.h"
 #include "test/mocks/server/mocks.h"
 #include "test/mocks/stream_info/mocks.h"
-
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
-
-#include "common/network/upstream_server_name.h"
-
-#include "src/envoy/tcp/forward_downstream_sni/config.h"
-#include "src/envoy/tcp/forward_downstream_sni/forward_downstream_sni.h"
 
 using testing::_;
 using testing::Matcher;
@@ -68,7 +66,7 @@ TEST(ForwardDownstreamSni, SetUpstreamServerNameOnlyIfSniIsPresent) {
         .WillByDefault(Return(EMPTY_STRING));
     filter.onNewConnection();
 
-    EXPECT_FALSE(stream_info.filterState().hasData<UpstreamServerName>(
+    EXPECT_FALSE(stream_info.filterState()->hasData<UpstreamServerName>(
         UpstreamServerName::key()));
   }
 
@@ -78,11 +76,11 @@ TEST(ForwardDownstreamSni, SetUpstreamServerNameOnlyIfSniIsPresent) {
         .WillByDefault(Return("www.example.com"));
     filter.onNewConnection();
 
-    EXPECT_TRUE(stream_info.filterState().hasData<UpstreamServerName>(
+    EXPECT_TRUE(stream_info.filterState()->hasData<UpstreamServerName>(
         UpstreamServerName::key()));
 
     auto forward_requested_server_name =
-        stream_info.filterState().getDataReadOnly<UpstreamServerName>(
+        stream_info.filterState()->getDataReadOnly<UpstreamServerName>(
             UpstreamServerName::key());
     EXPECT_EQ(forward_requested_server_name.value(), "www.example.com");
   }

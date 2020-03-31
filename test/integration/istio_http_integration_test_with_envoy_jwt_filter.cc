@@ -110,16 +110,16 @@ constexpr char kPolicyBackend[] = "policy-backend";
 constexpr char kZipkinBackend[] = "zipkin-backend";
 
 // Generates basic test request header.
-Http::TestHeaderMapImpl BaseRequestHeaders() {
-  return Http::TestHeaderMapImpl{{":method", "GET"},
-                                 {":path", "/"},
-                                 {":scheme", "http"},
-                                 {":authority", "host"},
-                                 {"x-forwarded-for", "10.0.0.1"}};
+Http::TestRequestHeaderMapImpl BaseRequestHeaders() {
+  return Http::TestRequestHeaderMapImpl{{":method", "GET"},
+                                        {":path", "/"},
+                                        {":scheme", "http"},
+                                        {":authority", "host"},
+                                        {"x-forwarded-for", "10.0.0.1"}};
 }
 
 // Generates test request header with given token.
-Http::TestHeaderMapImpl HeadersWithToken(const std::string& token) {
+Http::TestRequestHeaderMapImpl HeadersWithToken(const std::string& token) {
   auto headers = BaseRequestHeaders();
   headers.addCopy("Authorization", "Bearer " + token);
   return headers;
@@ -305,7 +305,7 @@ class IstioHttpIntegrationTestWithEnvoyJwtFilter
   }
 
   ConfigHelper::ConfigModifierFunction addNodeMetadata() {
-    return [](envoy::config::bootstrap::v2::Bootstrap& bootstrap) {
+    return [](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
       ::google::protobuf::Struct meta;
       MessageUtil::loadFromJson(
           fmt::sprintf(R"({
@@ -320,26 +320,22 @@ class IstioHttpIntegrationTestWithEnvoyJwtFilter
   }
 
   ConfigHelper::ConfigModifierFunction addTracer() {
-    return [](envoy::config::bootstrap::v2::Bootstrap& bootstrap) {
+    return [](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
       auto* http_tracing = bootstrap.mutable_tracing()->mutable_http();
       http_tracing->set_name("envoy.zipkin");
-      auto* tracer_config_fields =
-          http_tracing->mutable_config()->mutable_fields();
-      (*tracer_config_fields)["collector_cluster"].set_string_value(
-          kZipkinBackend);
-      (*tracer_config_fields)["collector_endpoint"].set_string_value(
-          "/api/v1/spans");
+      envoy::config::trace::v3::ZipkinConfig zipkin_config;
+      zipkin_config.set_collector_cluster(kZipkinBackend);
+      zipkin_config.set_collector_endpoint("/api/v1/spans");
+      zipkin_config.set_collector_endpoint_version(
+          envoy::config::trace::v3::ZipkinConfig::HTTP_JSON);
+      http_tracing->mutable_typed_config()->PackFrom(zipkin_config);
     };
   }
 
   ConfigHelper::HttpModifierFunction addTracingRate() {
-    return [](envoy::config::filter::network::http_connection_manager::v2::
+    return [](envoy::extensions::filters::network::http_connection_manager::v3::
                   HttpConnectionManager& hcm) {
       auto* tracing = hcm.mutable_tracing();
-      tracing->set_operation_name(
-          envoy::config::filter::network::http_connection_manager::v2::
-              HttpConnectionManager_Tracing_OperationName::
-                  HttpConnectionManager_Tracing_OperationName_EGRESS);
       tracing->mutable_client_sampling()->set_value(100.0);
       tracing->mutable_random_sampling()->set_value(100.0);
       tracing->mutable_overall_sampling()->set_value(100.0);
@@ -347,7 +343,7 @@ class IstioHttpIntegrationTestWithEnvoyJwtFilter
   }
 
   ConfigHelper::ConfigModifierFunction addCluster(const std::string& name) {
-    return [name](envoy::config::bootstrap::v2::Bootstrap& bootstrap) {
+    return [name](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
       auto* cluster = bootstrap.mutable_static_resources()->add_clusters();
       cluster->MergeFrom(bootstrap.static_resources().clusters()[0]);
       cluster->mutable_http2_protocol_options();
@@ -502,8 +498,8 @@ TEST_P(IstioHttpIntegrationTestWithEnvoyJwtFilter, GoodJwt) {
 
   waitForNextUpstreamRequest(0);
   // Send backend response.
-  upstream_request_->encodeHeaders(Http::TestHeaderMapImpl{{":status", "200"}},
-                                   true);
+  upstream_request_->encodeHeaders(
+      Http::TestResponseHeaderMapImpl{{":status", "200"}}, true);
   response->waitForEndStream();
 
   // Report (log) is sent after backen response.
@@ -545,7 +541,8 @@ TEST_P(IstioHttpIntegrationTestWithEnvoyJwtFilter, TracingHeader) {
   response->waitForEndStream();
 
   EXPECT_TRUE(response->complete());
-  Http::TestHeaderMapImpl upstream_headers(upstream_request_->headers());
+  Http::TestResponseHeaderMapImpl upstream_headers(
+      upstream_request_->headers());
   // Trace headers should be added into upstream request
   EXPECT_TRUE(upstream_headers.has(Envoy::Utils::kTraceID));
   EXPECT_TRUE(upstream_headers.has(Envoy::Utils::kSpanID));

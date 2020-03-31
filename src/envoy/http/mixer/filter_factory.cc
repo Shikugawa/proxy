@@ -30,18 +30,6 @@ namespace Configuration {
 
 class MixerConfigFactory : public NamedHttpFilterConfigFactory {
  public:
-  Http::FilterFactoryCb createFilterFactory(const Json::Object& config_json,
-                                            const std::string& prefix,
-                                            FactoryContext& context) override {
-    HttpClientConfig config_pb;
-    if (!Utils::ReadV2Config(config_json, &config_pb) &&
-        !Utils::ReadV1Config(config_json, &config_pb)) {
-      throw EnvoyException("Failed to parse JSON config");
-    }
-
-    return createFilterFactory(config_pb, prefix, context);
-  }
-
   Http::FilterFactoryCb createFilterFactoryFromProto(
       const Protobuf::Message& proto_config, const std::string& prefix,
       FactoryContext& context) override {
@@ -60,7 +48,8 @@ class MixerConfigFactory : public NamedHttpFilterConfigFactory {
   Router::RouteSpecificFilterConfigConstSharedPtr
   createRouteSpecificFilterConfig(
       const Protobuf::Message& config,
-      Envoy::Server::Configuration::FactoryContext&) override {
+      Server::Configuration::ServerFactoryContext&,
+      ProtobufMessage::ValidationVisitor&) override {
     auto obj = std::make_shared<Http::Mixer::PerRouteServiceConfig>();
     // TODO: use downcastAndValidate once client_config.proto adds validate
     // rules.
@@ -69,7 +58,7 @@ class MixerConfigFactory : public NamedHttpFilterConfigFactory {
     return obj;
   }
 
-  std::string name() override { return "mixer"; }
+  std::string name() const override { return "mixer"; }
 
  private:
   Http::FilterFactoryCb createFilterFactory(const HttpClientConfig& config_pb,

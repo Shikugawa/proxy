@@ -14,6 +14,7 @@
  */
 
 #include "src/envoy/utils/utils.h"
+
 #include "gmock/gmock.h"
 #include "mixer/v1/config/client/client_config.pb.h"
 #include "src/istio/mixerclient/check_context.h"
@@ -59,19 +60,15 @@ class UtilsTest : public testing::TestWithParam<bool> {
 
  protected:
   NiceMock<Envoy::Network::MockConnection> connection_{};
-  NiceMock<Envoy::Ssl::MockConnectionInfo> ssl_{};
   bool peer_;
 
   void setMockSan(const std::vector<std::string>& sans) {
-    EXPECT_CALL(Const(connection_), ssl()).WillRepeatedly(Return(&ssl_));
+    auto ssl = std::make_shared<NiceMock<Envoy::Ssl::MockConnectionInfo>>();
+    EXPECT_CALL(Const(connection_), ssl()).WillRepeatedly(Return(ssl));
     if (peer_) {
-      EXPECT_CALL(ssl_, uriSanPeerCertificate())
-          .Times(1)
-          .WillOnce(Return(sans));
+      ON_CALL(*ssl, uriSanPeerCertificate()).WillByDefault(Return(sans));
     } else {
-      EXPECT_CALL(ssl_, uriSanLocalCertificate())
-          .Times(1)
-          .WillOnce(Return(sans));
+      ON_CALL(*ssl, uriSanLocalCertificate()).WillByDefault(Return(sans));
     }
   }
 };
@@ -131,6 +128,16 @@ TEST_P(UtilsTest, GetPrincipalNoSpiffePrefix) {
   testGetPrincipal(sans, "spiffe:foo/bar", true);
 }
 
+TEST_P(UtilsTest, GetPrincipalFromSpiffePrefixSAN) {
+  std::vector<std::string> sans{"bad", "spiffe://foo/bar"};
+  testGetPrincipal(sans, "foo/bar", true);
+}
+
+TEST_P(UtilsTest, GetPrincipalFromNonSpiffePrefixSAN) {
+  std::vector<std::string> sans{"foobar", "xyz"};
+  testGetPrincipal(sans, "foobar", true);
+}
+
 TEST_P(UtilsTest, GetPrincipalEmpty) {
   std::vector<std::string> sans;
   testGetPrincipal(sans, "", false);
@@ -148,6 +155,16 @@ TEST_P(UtilsTest, GetTrustDomainEmpty) {
 
 TEST_P(UtilsTest, GetTrustDomainNoSpiffePrefix) {
   std::vector<std::string> sans{"spiffe:td/bar", "bad"};
+  testGetTrustDomain(sans, "", false);
+}
+
+TEST_P(UtilsTest, GetTrustDomainFromSpiffePrefixSAN) {
+  std::vector<std::string> sans{"bad", "spiffe://td/bar", "xyz"};
+  testGetTrustDomain(sans, "td", true);
+}
+
+TEST_P(UtilsTest, GetTrustDomainFromNonSpiffePrefixSAN) {
+  std::vector<std::string> sans{"tdbar", "xyz"};
   testGetTrustDomain(sans, "", false);
 }
 

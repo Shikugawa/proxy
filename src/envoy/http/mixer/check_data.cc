@@ -14,6 +14,7 @@
  */
 
 #include "src/envoy/http/mixer/check_data.h"
+
 #include "absl/strings/string_view.h"
 #include "common/common/base64.h"
 #include "src/envoy/http/jwt_auth/jwt.h"
@@ -38,8 +39,8 @@ const std::set<std::string> RequestHeaderExclusives = {
 
 }  // namespace
 
-CheckData::CheckData(const HeaderMap& headers,
-                     const envoy::api::v2::core::Metadata& metadata,
+CheckData::CheckData(const RequestHeaderMap& headers,
+                     const envoy::config::core::v3::Metadata& metadata,
                      const Network::Connection* connection)
     : headers_(headers), metadata_(metadata), connection_(connection) {
   if (headers_.Path()) {

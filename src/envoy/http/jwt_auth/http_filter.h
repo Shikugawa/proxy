@@ -15,10 +15,9 @@
 
 #pragma once
 
-#include "src/envoy/http/jwt_auth/jwt_authenticator.h"
-
 #include "common/common/logger.h"
 #include "envoy/http/filter.h"
+#include "src/envoy/http/jwt_auth/jwt_authenticator.h"
 
 namespace Envoy {
 namespace Http {
@@ -36,9 +35,9 @@ class JwtVerificationFilter : public StreamDecoderFilter,
   void onDestroy() override;
 
   // Http::StreamDecoderFilter
-  FilterHeadersStatus decodeHeaders(HeaderMap& headers, bool) override;
+  FilterHeadersStatus decodeHeaders(RequestHeaderMap& headers, bool) override;
   FilterDataStatus decodeData(Buffer::Instance&, bool) override;
-  FilterTrailersStatus decodeTrailers(HeaderMap&) override;
+  FilterTrailersStatus decodeTrailers(RequestTrailerMap&) override;
   void setDecoderFilterCallbacks(
       StreamDecoderFilterCallbacks& callbacks) override;
 

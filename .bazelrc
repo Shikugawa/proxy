@@ -1,65 +1,30 @@
-# Copied from https://github.com/envoyproxy/envoy/blob/master/tools/bazel.rc
+# =====================================================================
 # Envoy specific Bazel build/test options.
+# =====================================================================
 
-# Bazel doesn't need more than 200MB of memory based on memory profiling:
-# https://docs.bazel.build/versions/master/skylark/performance.html#memory-profiling
-# Limiting JVM heapsize here to let it do GC more when approaching the limit to
-# leave room for compiler/linker.
-startup --host_jvm_args=-Xmx512m
+# Keep envoy.bazelrc up-to-date by run:
+# curl -sSL https://raw.githubusercontent.com/envoyproxy/envoy-wasm/master/.bazelrc > envoy.bazelrc
+import %workspace%/envoy.bazelrc
 
+# Overrides workspace_status_command
 build --workspace_status_command=tools/bazel_get_workspace_status
-# enable path normalization by default. See https://github.com/envoyproxy/envoy/pull/6519
+build:remote --remote_timeout=7200
+# ========================================
+# Istio specific Bazel build/test options.
+# ========================================
+
+# Need for CI image to pickup docker-credential-gcloud, PATH is fixed in rbe-toolchain-* configs.
+build:remote-ci --action_env=PATH=/usr/local/google-cloud-sdk/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/llvm/bin
+
+# Enable path normalization by default.
+# See: https://github.com/envoyproxy/envoy/pull/6519
 build --define path_normalization_by_default=true
-build --host_force_python=PY2
 
-# Basic ASAN/UBSAN that works for gcc
-build:asan --define ENVOY_CONFIG_ASAN=1
-build:asan --copt -fsanitize=address,undefined
-build:asan --linkopt -fsanitize=address,undefined
-build:asan --copt -fno-sanitize=vptr
-build:asan --linkopt -fno-sanitize=vptr
-build:asan --linkopt -ldl
-build:asan --define tcmalloc=disabled
-build:asan --build_tag_filters=-no_asan
-build:asan --test_tag_filters=-no_asan
-build:asan --define signal_trace=disabled
+# Build with embedded V8-based WebAssembly runtime.
+build --define wasm=v8
 
-# Clang 5.0 ASAN
-build:clang-asan --define ENVOY_CONFIG_ASAN=1
-build:clang-asan --copt -D__SANITIZE_ADDRESS__
-build:clang-asan --copt -DADDRESS_SANITIZER=1
-build:clang-asan --copt -fsanitize=address,undefined
-build:clang-asan --linkopt -fsanitize=address,undefined
-build:clang-asan --copt -fno-sanitize=vptr
-build:clang-asan --linkopt -fno-sanitize=vptr
-build:clang-asan --copt -fno-sanitize-recover=all
-build:clang-asan --linkopt -ldl
-build:clang-asan --define tcmalloc=disabled
-build:clang-asan --build_tag_filters=-no_asan
-build:clang-asan --test_tag_filters=-no_asan
-build:clang-asan --define signal_trace=disabled
-build:clang-asan --test_env=ASAN_SYMBOLIZER_PATH
-build:clang-asan --linkopt -fuse-ld=lld
-
-# Clang 5.0 TSAN
-build:clang-tsan --define ENVOY_CONFIG_TSAN=1
-build:clang-tsan --copt -fsanitize=thread
-build:clang-tsan --linkopt -fsanitize=thread
-build:clang-tsan --define tcmalloc=disabled
-build:clang-tsan --linkopt -fuse-ld=lld
-
-# Clang 5.0 MSAN - broken today since we need to rebuild lib[std]c++ and external deps with MSAN
-# support (see https://github.com/envoyproxy/envoy/issues/443).
-build:clang-msan --define ENVOY_CONFIG_MSAN=1
-build:clang-msan --copt -fsanitize=memory
-build:clang-msan --linkopt -fsanitize=memory
-build:clang-msan --define tcmalloc=disabled
-build:clang-msan --copt -fsanitize-memory-track-origins=2
-
-# Test options
-test --test_env=HEAPCHECK=normal --test_env=PPROF_PATH
-# enable path normalization by default. See https://github.com/envoyproxy/envoy/pull/6519
-test --define path_normalization_by_default=true
+# Build Proxy-WASM plugins as native extensions.
+build --copt -DNULL_PLUGIN
 
 # Release builds without debug symbols.
 build:release -c opt
@@ -68,10 +33,10 @@ build:release --strip=always
 # Release builds with debug symbols
 build:release-symbol -c opt
 
+# Debug builds
+build:debug -c dbg
+
 # Add compile option for all C++ files
 build --cxxopt -Wnon-virtual-dtor
 build --cxxopt -Wformat
 build --cxxopt -Wformat-security
-
-# Compile all extension plugin as native
-build --copt -DNULL_PLUGIN

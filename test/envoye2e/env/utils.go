@@ -17,14 +17,27 @@ package env
 import (
 	"fmt"
 	"go/build"
-
+	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
+	"testing"
 )
 
 func GetDefaultIstioOut() string {
 	return fmt.Sprintf("%s/out/%s_%s", build.Default.GOPATH, runtime.GOOS, runtime.GOARCH)
 }
 
-func GetDefaultIstioBin() string {
-	return fmt.Sprintf("%s/bin", build.Default.GOPATH)
+func GetDefaultEnvoyBin() string {
+	// Note: `bazel info bazel-bin` returns incorrect path to a binary (always fastbuild, not opt or dbg)
+	// Instead we rely on symbolic link src/envoy/envoy in the workspace
+	workspace, _ := exec.Command("bazel", "info", "workspace").Output()
+	return filepath.Join(strings.TrimSuffix(string(workspace), "\n"), "bazel-bin/src/envoy/")
+}
+
+func SkipTSanASan(t *testing.T) {
+	if os.Getenv("TSAN") != "" || os.Getenv("ASAN") != "" {
+		t.Skip("https://github.com/istio/istio/issues/21273")
+	}
 }

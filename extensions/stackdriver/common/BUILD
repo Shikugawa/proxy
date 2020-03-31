@@ -17,52 +17,44 @@
 
 licenses(["notice"])
 
-cc_library(
-    name = "context",
-    srcs = [
-        "context.cc",
-    ],
-    hdrs = [
-        "context.h",
-    ],
-    visibility = [
-        "//extensions/stackdriver:__pkg__",
-        "//extensions/stackdriver/metric:__pkg__",
-    ],
-    deps = [
-        ":constants",
-        ":node_info_cc_proto",
-        "@com_google_protobuf//:protobuf",
-    ],
+load(
+    "@envoy//bazel:envoy_build_system.bzl",
+    "envoy_cc_library",
 )
 
-cc_library(
+envoy_cc_library(
     name = "constants",
     hdrs = [
         "constants.h",
     ],
-)
-
-cc_proto_library(
-    name = "node_info_cc_proto",
+    repository = "@envoy",
     visibility = [
         "//extensions/stackdriver:__pkg__",
+        "//extensions/stackdriver/edges:__pkg__",
+        "//extensions/stackdriver/log:__pkg__",
+        "//extensions/stackdriver/metric:__pkg__",
     ],
-    deps = ["node_info_proto"],
 )
 
-proto_library(
-    name = "node_info_proto",
-    srcs = ["node_info.proto"],
-)
-
-cc_test(
-    name = "context_test",
-    size = "small",
-    srcs = ["context_test.cc"],
-    linkstatic = 1,
+envoy_cc_library(
+    name = "utils",
+    srcs = [
+        "utils.cc",
+    ],
+    hdrs = [
+        "utils.h",
+    ],
+    external_deps = ["grpc"],
+    repository = "@envoy",
+    visibility = [
+        "//extensions/stackdriver:__pkg__",
+        "//extensions/stackdriver/edges:__pkg__",
+        "//extensions/stackdriver/log:__pkg__",
+        "//extensions/stackdriver/metric:__pkg__",
+    ],
     deps = [
-        ":context",
-        "//external:googletest_main",
+        ":constants",
+        "//extensions/common:context",
+        "@com_google_googleapis//google/monitoring/v3:monitoring_cc_proto",
     ],
 )

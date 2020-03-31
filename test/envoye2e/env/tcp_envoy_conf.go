@@ -15,6 +15,12 @@
 package env
 
 const tcpEnvoyClientConfTemplYAML = `
+node:
+  id: test
+  metadata: {
+{{.ClientNodeMetadata | indent 4 }}
+  }
+{{.ExtraConfig }}
 admin:
   access_log_path: {{.ClientAccessLogPath}}
   address:
@@ -35,26 +41,23 @@ static_resources:
               socket_address:
                 address: 127.0.0.1
                 port_value: {{.Ports.ClientToServerProxyPort}}
-  - name: server
-    connect_timeout: 5s
-    type: STATIC
-    load_assignment:
-      cluster_name: server
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address:
-                address: 127.0.0.1
-                port_value: {{.Ports.ProxyToServerProxyPort}}
+{{.UpstreamFiltersInClient | indent 4 }}    
+{{.ClusterTLSContext | indent 4 }}
   listeners:
   - name: app-to-client
+    traffic_direction: OUTBOUND
     address:
       socket_address:
         address: 127.0.0.1
         port_value: {{.Ports.AppToClientProxyPort}}
+    listener_filters:
+    - name: "envoy.listener.tls_inspector"
+      typed_config: {}
+    - name: "envoy.listener.http_inspector"
+      typed_config: {}
     filter_chains:
     - filters:
+{{.FiltersBeforeEnvoyRouterInAppToClient | indent 6 }}
       - name: envoy.tcp_proxy
         config:
           stat_prefix: inbound_tcp
@@ -63,24 +66,17 @@ static_resources:
           - name: envoy.file_access_log
             config:
               path: {{.ClientAccessLogPath}}
-  - name: client-to-proxy
-    address:
-      socket_address:
-        address: 127.0.0.1
-        port_value: {{.Ports.ClientToServerProxyPort}}
-    filter_chains:
-    - filters:
-      - name: envoy.tcp_proxy
-        config:
-          stat_prefix: outbound_tcp
-          cluster: server
-          access_log:
-          - name: envoy.file_access_log
-            config:
-              path: {{.ClientAccessLogPath}}
+              format: {{.AccesslogFormat}}
+{{.TLSContext | indent 6 }}
 `
 
 const tcpEnvoyServerConfTemplYAML = `
+node:
+  id: test
+  metadata: {
+{{.ServerNodeMetadata | indent 4 }}
+  }
+{{.ExtraConfig }}
 admin:
   access_log_path: {{.ServerAccessLogPath}}
   address:
@@ -101,41 +97,22 @@ static_resources:
               socket_address:
                 address: 127.0.0.1
                 port_value: {{.Ports.BackendPort}}
-  - name: server
-    connect_timeout: 5s
-    type: STATIC
-    load_assignment:
-      cluster_name: server
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address:
-                address: 127.0.0.1
-                port_value: {{.Ports.ClientToAppProxyPort}}
+{{.ServerClusterTLSContext | indent 4 }}
   listeners:
-  - name: proxy-to-server
+  - name: server
+    traffic_direction: INBOUND
     address:
       socket_address:
         address: 127.0.0.1
-        port_value: {{.Ports.ProxyToServerProxyPort}}
+        port_value: {{.Ports.ClientToServerProxyPort}}
+    listener_filters:
+    - name: "envoy.listener.tls_inspector"
+      typed_config: {}
+    - name: "envoy.listener.http_inspector"
+      typed_config: {}
     filter_chains:
     - filters:
-      - name: envoy.tcp_proxy
-        config:
-          stat_prefix: inbound_tcp
-          cluster: server
-          access_log:
-          - name: envoy.file_access_log
-            config:
-              path: {{.ServerAccessLogPath}}
-  - name: client-to-app
-    address:
-      socket_address:
-        address: 127.0.0.1
-        port_value: {{.Ports.ClientToAppProxyPort}}
-    filter_chains:
-    - filters:
+{{.FiltersBeforeEnvoyRouterInProxyToServer | indent 6 }}
       - name: envoy.tcp_proxy
         config:
           stat_prefix: outbound_tcp
@@ -144,12 +121,14 @@ static_resources:
           - name: envoy.file_access_log
             config:
               path: {{.ServerAccessLogPath}}
+              format: {{.ServerAccesslogFormat}}
+{{.ServerTLSContext | indent 6 }}
 `
 
-func GetTcpClientEnvoyConfTmp() string {
+func GetTCPClientEnvoyConfTmp() string {
 	return tcpEnvoyClientConfTemplYAML
 }
 
-func GetTcpServerEnvoyConfTmp() string {
+func GetTCPServerEnvoyConfTmp() string {
 	return tcpEnvoyServerConfTemplYAML
 }

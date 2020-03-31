@@ -13,9 +13,9 @@
  * limitations under the License.
  */
 
-#include <chrono>
-
 #include "src/envoy/utils/stats.h"
+
+#include <chrono>
 
 namespace Envoy {
 namespace Utils {
@@ -36,7 +36,7 @@ MixerStatsObject::MixerStatsObject(Event::Dispatcher& dispatcher,
   if (stats_update_interval_ <= 0) {
     stats_update_interval_ = kStatsUpdateIntervalInMs;
   }
-  memset(&old_stats_, 0, sizeof(old_stats_));
+  old_stats_ = ::istio::mixerclient::Statistics{};
 
   if (get_stats_func_) {
     timer_ = dispatcher.createTimer([this]() { OnTimer(); });

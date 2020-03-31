@@ -16,32 +16,71 @@ package env
 
 import (
 	"bufio"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
+	"path/filepath"
 	"time"
 )
 
 // TCPServer stores data for a TCP server.
 type TCPServer struct {
-	port   uint16
-	lis    net.Listener
-	prefix string
+	lis       net.Listener
+	prefix    string
+	dir       string
+	port      uint16
+	enableTLS bool
 }
 
 // NewTCPServer creates a new TCP server.
-func NewTCPServer(port uint16, prefix string) (*TCPServer, error) {
-	log.Printf("Tcp server listening on port %v\n", port)
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		log.Fatal(err)
-		return nil, err
+func NewTCPServer(port uint16, prefix string, enableTLS bool, rootDir string) (*TCPServer, error) {
+	log.Printf("TCP server listening on port %v\n", port)
+	var lis net.Listener
+	if enableTLS {
+		certificate, err := tls.LoadX509KeyPair(
+			filepath.Join(rootDir, "testdata/certs/cert-chain.pem"),
+			filepath.Join(rootDir, "testdata/certs/key.pem"))
+		if err != nil {
+			return nil, err
+		}
+		caCert, err := ioutil.ReadFile(filepath.Join(rootDir, "testdata/certs/root-cert.pem"))
+		if err != nil {
+			return nil, err
+		}
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM(caCert)
+
+		config := &tls.Config{
+			Certificates: []tls.Certificate{certificate},
+			NextProtos:   []string{"istio2"},
+			ClientAuth:   tls.RequestClientCert,
+			ClientCAs:    caCertPool,
+			ServerName:   "localhost",
+		}
+		lis, err = tls.Listen("tcp", fmt.Sprintf(":%d", port), config)
+		if err != nil {
+			log.Fatal(err)
+			return nil, err
+		}
+	} else {
+		var err error
+		lis, err = net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			log.Fatal(err)
+			return nil, err
+		}
 	}
+
 	return &TCPServer{
-		port:   port,
-		lis:    lis,
-		prefix: prefix,
+		port:      port,
+		lis:       lis,
+		prefix:    prefix,
+		enableTLS: enableTLS,
+		dir:       rootDir,
 	}, nil
 }
 
@@ -63,14 +102,34 @@ func handleConnection(conn net.Conn, prefix string) {
 		// prepend prefix and send as response
 		line := fmt.Sprintf("%s %s", prefix, bytes)
 		log.Printf("response: %s", line)
-		conn.Write([]byte(line))
+		_, _ = conn.Write([]byte(line))
 	}
 }
 
 // WaitForTCPServer waits for a TCP server
-func WaitForTCPServer(port uint16) error {
+func WaitForTCPServer(port uint16, enableTLS bool, rootDir string) error {
+	var config *tls.Config
+
+	if enableTLS {
+		certPool := x509.NewCertPool()
+		bs, err := ioutil.ReadFile(filepath.Join(rootDir, "testdata/certs/cert-chain.pem"))
+		if err != nil {
+			return fmt.Errorf("failed to read client ca cert: %s", err)
+		}
+		ok := certPool.AppendCertsFromPEM(bs)
+		if !ok {
+			return fmt.Errorf("failed to append client certs")
+		}
+		config = &tls.Config{RootCAs: certPool, NextProtos: []string{"istio2"}, ServerName: "localhost"}
+	}
 	for i := 0; i < maxAttempts; i++ {
-		conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		var conn net.Conn
+		var err error
+		if enableTLS {
+			conn, err = tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port), config)
+		} else {
+			conn, err = net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		}
 		if err != nil {
 			log.Println("Will wait 200ms and try again.")
 			time.Sleep(200 * time.Millisecond)
@@ -91,6 +150,7 @@ func WaitForTCPServer(port uint16) error {
 	return fmt.Errorf("timeout waiting for server startup")
 }
 
+// Serve tcp requests
 func Serve(l net.Listener, prefix string) error {
 	for {
 		conn, err := l.Accept()
@@ -110,7 +170,7 @@ func (s *TCPServer) Start() <-chan error {
 		errCh <- Serve(s.lis, s.prefix)
 	}()
 	go func() {
-		errCh <- WaitForTCPServer(s.port)
+		errCh <- WaitForTCPServer(s.port, s.enableTLS, s.dir)
 	}()
 
 	return errCh

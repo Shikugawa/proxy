@@ -13,17 +13,15 @@
  * limitations under the License.
  */
 
-#include "common/tcp_proxy/tcp_proxy.h"
-
-#include "src/envoy/tcp/tcp_cluster_rewrite/config.h"
 #include "src/envoy/tcp/tcp_cluster_rewrite/tcp_cluster_rewrite.h"
 
+#include "common/tcp_proxy/tcp_proxy.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "src/envoy/tcp/tcp_cluster_rewrite/config.h"
 #include "test/mocks/network/mocks.h"
 #include "test/mocks/server/mocks.h"
 #include "test/mocks/stream_info/mocks.h"
-
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 
 using namespace ::istio::envoy::config::filter::network::tcp_cluster_rewrite;
 using testing::_;
@@ -61,20 +59,21 @@ class TcpClusterRewriteFilterTest : public testing::Test {
 TEST_F(TcpClusterRewriteFilterTest, ClusterRewrite) {
   // no rewrite
   {
-    stream_info_.filterState().setData(
+    stream_info_.filterState()->setData(
         TcpProxy::PerConnectionCluster::key(),
         std::make_unique<TcpProxy::PerConnectionCluster>(
             "hello.ns1.svc.cluster.local"),
-        StreamInfo::FilterState::StateType::Mutable);
+        StreamInfo::FilterState::StateType::Mutable,
+        StreamInfo::FilterState::LifeSpan::DownstreamConnection);
     filter_->onNewConnection();
 
     EXPECT_TRUE(
-        stream_info_.filterState().hasData<TcpProxy::PerConnectionCluster>(
+        stream_info_.filterState()->hasData<TcpProxy::PerConnectionCluster>(
             TcpProxy::PerConnectionCluster::key()));
 
     auto per_connection_cluster =
         stream_info_.filterState()
-            .getDataReadOnly<TcpProxy::PerConnectionCluster>(
+            ->getDataReadOnly<TcpProxy::PerConnectionCluster>(
                 TcpProxy::PerConnectionCluster::key());
     EXPECT_EQ(per_connection_cluster.value(), "hello.ns1.svc.cluster.local");
   }
@@ -86,19 +85,20 @@ TEST_F(TcpClusterRewriteFilterTest, ClusterRewrite) {
     proto_config.set_cluster_replacement(".svc.cluster.local");
     configure(proto_config);
 
-    stream_info_.filterState().setData(
+    stream_info_.filterState()->setData(
         TcpProxy::PerConnectionCluster::key(),
         std::make_unique<TcpProxy::PerConnectionCluster>("hello.ns1.global"),
-        StreamInfo::FilterState::StateType::Mutable);
+        StreamInfo::FilterState::StateType::Mutable,
+        StreamInfo::FilterState::LifeSpan::DownstreamConnection);
     filter_->onNewConnection();
 
     EXPECT_TRUE(
-        stream_info_.filterState().hasData<TcpProxy::PerConnectionCluster>(
+        stream_info_.filterState()->hasData<TcpProxy::PerConnectionCluster>(
             TcpProxy::PerConnectionCluster::key()));
 
     auto per_connection_cluster =
         stream_info_.filterState()
-            .getDataReadOnly<TcpProxy::PerConnectionCluster>(
+            ->getDataReadOnly<TcpProxy::PerConnectionCluster>(
                 TcpProxy::PerConnectionCluster::key());
     EXPECT_EQ(per_connection_cluster.value(), "hello.ns1.svc.cluster.local");
   }
@@ -110,19 +110,20 @@ TEST_F(TcpClusterRewriteFilterTest, ClusterRewrite) {
     proto_config.set_cluster_replacement("another.svc.cluster.local");
     configure(proto_config);
 
-    stream_info_.filterState().setData(
+    stream_info_.filterState()->setData(
         TcpProxy::PerConnectionCluster::key(),
         std::make_unique<TcpProxy::PerConnectionCluster>("hello.ns1.global"),
-        StreamInfo::FilterState::StateType::Mutable);
+        StreamInfo::FilterState::StateType::Mutable,
+        StreamInfo::FilterState::LifeSpan::DownstreamConnection);
     filter_->onNewConnection();
 
     EXPECT_TRUE(
-        stream_info_.filterState().hasData<TcpProxy::PerConnectionCluster>(
+        stream_info_.filterState()->hasData<TcpProxy::PerConnectionCluster>(
             TcpProxy::PerConnectionCluster::key()));
 
     auto per_connection_cluster =
         stream_info_.filterState()
-            .getDataReadOnly<TcpProxy::PerConnectionCluster>(
+            ->getDataReadOnly<TcpProxy::PerConnectionCluster>(
                 TcpProxy::PerConnectionCluster::key());
     EXPECT_EQ(per_connection_cluster.value(), "another.svc.cluster.local");
   }

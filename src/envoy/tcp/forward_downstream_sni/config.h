@@ -29,13 +29,11 @@ class ForwardDownstreamSniNetworkFilterConfigFactory
     : public Server::Configuration::NamedNetworkFilterConfigFactory {
  public:
   // NamedNetworkFilterConfigFactory
-  Network::FilterFactoryCb createFilterFactory(
-      const Json::Object&, Server::Configuration::FactoryContext&) override;
   Network::FilterFactoryCb createFilterFactoryFromProto(
       const Protobuf::Message&,
       Server::Configuration::FactoryContext&) override;
   ProtobufTypes::MessagePtr createEmptyConfigProto() override;
-  std::string name() override { return "forward_downstream_sni"; }
+  std::string name() const override { return "forward_downstream_sni"; }
 };
 
 }  // namespace ForwardDownstreamSni

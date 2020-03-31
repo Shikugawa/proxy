@@ -15,8 +15,15 @@
 
 #pragma once
 
-#include "extensions/stackdriver/common/context.h"
+#include "extensions/common/context.h"
+#include "extensions/stackdriver/common/utils.h"
+
+// OpenCensus is full of unused parameters in metric_service.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 #include "opencensus/exporters/stats/stackdriver/stackdriver_exporter.h"
+#pragma GCC diagnostic pop
+
 #include "opencensus/stats/measure.h"
 #include "opencensus/stats/stats.h"
 #include "opencensus/stats/tag_key.h"
@@ -27,7 +34,9 @@ namespace Metric {
 
 // Returns Stackdriver exporter config option based on node metadata.
 opencensus::exporters::stats::StackdriverOptions getStackdriverOptions(
-    const stackdriver::common::NodeInfo &local_node_info);
+    const wasm::common::NodeInfo& local_node_info,
+    const ::Extensions::Stackdriver::Common::StackdriverStubOption&
+        stub_option);
 
 // registers Opencensus views
 void registerViews();
@@ -49,6 +58,12 @@ opencensus::tags::TagKey destinationPrincipalKey();
 opencensus::tags::TagKey destinationWorkloadNameKey();
 opencensus::tags::TagKey destinationWorkloadNamespaceKey();
 opencensus::tags::TagKey destinationOwnerKey();
+opencensus::tags::TagKey destinationCanonicalServiceNameKey();
+opencensus::tags::TagKey destinationCanonicalServiceNamespaceKey();
+opencensus::tags::TagKey sourceCanonicalServiceNameKey();
+opencensus::tags::TagKey sourceCanonicalServiceNamespaceKey();
+opencensus::tags::TagKey destinationCanonicalRevisionKey();
+opencensus::tags::TagKey sourceCanonicalRevisionKey();
 
 // Opencensus measure functions.
 opencensus::stats::MeasureInt64 serverRequestCountMeasure();

@@ -14,8 +14,11 @@
  */
 
 #include "src/envoy/http/authn/origin_authenticator.h"
+
 #include "absl/strings/match.h"
 #include "authentication/v1alpha1/policy.pb.h"
+#include "common/http/headers.h"
+#include "common/http/utility.h"
 #include "src/envoy/http/authn/authn_utils.h"
 
 using istio::authn::Payload;
@@ -26,6 +29,15 @@ namespace Envoy {
 namespace Http {
 namespace Istio {
 namespace AuthN {
+
+bool isCORSPreflightRequest(const Http::RequestHeaderMap& headers) {
+  return headers.Method() &&
+         headers.Method()->value().getStringView() ==
+             Http::Headers::get().MethodValues.Options &&
+         headers.Origin() && !headers.Origin()->value().empty() &&
+         headers.AccessControlRequestMethod() &&
+         !headers.AccessControlRequestMethod()->value().empty();
+}
 
 OriginAuthenticator::OriginAuthenticator(FilterContext* filter_context,
                                          const iaapi::Policy& policy)
@@ -45,11 +57,24 @@ bool OriginAuthenticator::run(Payload* payload) {
     return false;
   }
 
-  absl::string_view request_path;
+  if (isCORSPreflightRequest(filter_context()->headerMap())) {
+    // The CORS preflight doesn't include user credentials, allow regardless of
+    // JWT policy. See
+    // http://www.w3.org/TR/cors/#cross-origin-request-with-preflight.
+    ENVOY_LOG(debug, "CORS preflight request allowed regardless of JWT policy");
+    return true;
+  }
+
+  absl::string_view path;
   if (filter_context()->headerMap().Path() != nullptr) {
-    request_path =
-        filter_context()->headerMap().Path()->value().getStringView();
-    ENVOY_LOG(debug, "Got request path {}", request_path);
+    path = filter_context()->headerMap().Path()->value().getStringView();
+
+    // Trim query parameters and/or fragment if present
+    size_t offset = path.find_first_of("?#");
+    if (offset != absl::string_view::npos) {
+      path.remove_suffix(path.length() - offset);
+    }
+    ENVOY_LOG(trace, "Got request path {}", path);
   } else {
     ENVOY_LOG(error,
               "Failed to get request path, JWT will always be used for "
@@ -61,8 +86,8 @@ bool OriginAuthenticator::run(Payload* payload) {
   for (const auto& method : policy_.origins()) {
     const auto& jwt = method.jwt();
 
-    if (AuthnUtils::ShouldValidateJwtPerPath(request_path, jwt)) {
-      ENVOY_LOG(debug, "Validating request path {} for jwt {}", request_path,
+    if (AuthnUtils::ShouldValidateJwtPerPath(path, jwt)) {
+      ENVOY_LOG(debug, "Validating request path {} for jwt {}", path,
                 jwt.DebugString());
       // set triggered to true if any of the jwt trigger rule matched.
       triggered = true;

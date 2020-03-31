@@ -16,7 +16,6 @@
 #pragma once
 
 #include "envoy/config/filter/network/tcp_cluster_rewrite/v2alpha1/config.pb.h"
-
 #include "envoy/network/connection.h"
 #include "envoy/network/filter.h"
 #include "envoy/registry/registry.h"
@@ -35,16 +34,13 @@ namespace TcpClusterRewrite {
 class TcpClusterRewriteFilterConfigFactory
     : public Server::Configuration::NamedNetworkFilterConfigFactory {
  public:
-  Network::FilterFactoryCb createFilterFactory(
-      const Json::Object&, Server::Configuration::FactoryContext&) override;
-
   Network::FilterFactoryCb createFilterFactoryFromProto(
       const Protobuf::Message&,
       Server::Configuration::FactoryContext&) override;
 
   ProtobufTypes::MessagePtr createEmptyConfigProto() override;
 
-  std::string name() override {
+  std::string name() const override {
     return "envoy.filters.network.tcp_cluster_rewrite";
   }
 

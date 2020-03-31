@@ -27,17 +27,13 @@ class SniVerifierConfigFactory
     : public Server::Configuration::NamedNetworkFilterConfigFactory {
  public:
   // NamedNetworkFilterConfigFactory
-  Network::FilterFactoryCb createFilterFactory(
-      const Json::Object&,
-      Server::Configuration::FactoryContext& context) override;
-
   Network::FilterFactoryCb createFilterFactoryFromProto(
       const Protobuf::Message&,
       Server::Configuration::FactoryContext& context) override;
 
   ProtobufTypes::MessagePtr createEmptyConfigProto() override;
 
-  std::string name() override { return "sni_verifier"; }
+  std::string name() const override { return "sni_verifier"; }
 
  private:
   Network::FilterFactoryCb createFilterFactoryFromContext(

@@ -15,13 +15,13 @@
 
 #include "src/envoy/http/jwt_auth/http_filter.h"
 
+#include <chrono>
+#include <string>
+
 #include "common/http/message_impl.h"
 #include "common/http/utility.h"
 #include "envoy/http/async_client.h"
 #include "src/envoy/utils/filter_names.h"
-
-#include <chrono>
-#include <string>
 
 namespace Envoy {
 namespace Http {
@@ -40,8 +40,8 @@ JwtVerificationFilter::~JwtVerificationFilter() {}
 
 void JwtVerificationFilter::onDestroy() { jwt_auth_.onDestroy(); }
 
-FilterHeadersStatus JwtVerificationFilter::decodeHeaders(HeaderMap& headers,
-                                                         bool) {
+FilterHeadersStatus JwtVerificationFilter::decodeHeaders(
+    RequestHeaderMap& headers, bool) {
   state_ = Calling;
   stopped_ = false;
 
@@ -93,7 +93,7 @@ FilterDataStatus JwtVerificationFilter::decodeData(Buffer::Instance&, bool) {
   return FilterDataStatus::Continue;
 }
 
-FilterTrailersStatus JwtVerificationFilter::decodeTrailers(HeaderMap&) {
+FilterTrailersStatus JwtVerificationFilter::decodeTrailers(RequestTrailerMap&) {
   if (state_ == Calling) {
     return FilterTrailersStatus::StopIteration;
   }

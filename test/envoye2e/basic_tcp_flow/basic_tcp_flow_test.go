@@ -27,24 +27,22 @@ import (
 
 // Stats in Client Envoy proxy.
 var expectedClientStats = map[string]int{
-	// http listener stats
-	"tcp.inbound_tcp.downstream_cx_total":  1,
-	"tcp.outbound_tcp.downstream_cx_total": 1,
+	// tcp listener stats
+	"tcp.inbound_tcp.downstream_cx_total": 1,
 }
 
 // Stats in Server Envoy proxy.
 var expectedServerStats = map[string]int{
-	// http listener stats
-	"tcp.inbound_tcp.downstream_cx_total":  1,
+	// tcp listener stats
 	"tcp.outbound_tcp.downstream_cx_total": 1,
 }
 
-func TestTcpBasicFlow(t *testing.T) {
-	s := env.NewClientServerEnvoyTestSetup(env.BasicFlowTest, t)
-	s.SetNoBackend(true)
-	s.SetStartTcpBackend(true)
-	s.ClientEnvoyTemplate = env.GetTcpClientEnvoyConfTmp()
-	s.ServerEnvoyTemplate = env.GetTcpServerEnvoyConfTmp()
+func TestTCPBasicFlow(t *testing.T) {
+	s := env.NewClientServerEnvoyTestSetup(env.BasicTCPFlowTest, t)
+	s.SetStartHTTPBackend(false)
+	s.SetStartTCPBackend(true)
+	s.ClientEnvoyTemplate = env.GetTCPClientEnvoyConfTmp()
+	s.ServerEnvoyTemplate = env.GetTCPServerEnvoyConfTmp()
 	if err := s.SetUpClientServerEnvoy(); err != nil {
 		t.Fatalf("Failed to setup test: %v", err)
 	}
@@ -59,8 +57,8 @@ func TestTcpBasicFlow(t *testing.T) {
 	if message != "hello world\n" {
 		t.Fatalf("Verification Failed. Expected: hello world. Got: %v", message)
 	}
-	s.VerifyStats(getParsedExpectedStats(expectedClientStats, t, s), s.Ports().ClientAdminPort)
-	s.VerifyStats(getParsedExpectedStats(expectedServerStats, t, s), s.Ports().ServerAdminPort)
+	s.VerifyEnvoyStats(getParsedExpectedStats(expectedClientStats, t, s), s.Ports().ClientAdminPort)
+	s.VerifyEnvoyStats(getParsedExpectedStats(expectedServerStats, t, s), s.Ports().ServerAdminPort)
 }
 
 func getParsedExpectedStats(expectedStats map[string]int, t *testing.T, s *env.TestSetup) map[string]int {

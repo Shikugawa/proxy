@@ -14,6 +14,7 @@
  */
 
 #include "src/envoy/utils/utils.h"
+
 #include "absl/strings/match.h"
 #include "include/istio/utils/attributes_builder.h"
 #include "mixer/v1/attributes.pb.h"
@@ -35,10 +36,14 @@ const std::string kPerHostMetadataKey("istio");
 // Attribute field for per-host data override
 const std::string kMetadataDestinationUID("uid");
 
+bool hasSPIFFEPrefix(const std::string& san) {
+  return absl::StartsWith(san, kSPIFFEPrefix);
+}
+
 bool getCertSAN(const Network::Connection* connection, bool peer,
                 std::string* principal) {
   if (connection) {
-    const Ssl::ConnectionInfo* ssl = connection->ssl();
+    const auto ssl = connection->ssl();
     if (ssl != nullptr) {
       const auto& sans =
           (peer ? ssl->uriSanPeerCertificate() : ssl->uriSanLocalCertificate());
@@ -46,6 +51,14 @@ bool getCertSAN(const Network::Connection* connection, bool peer,
         // empty result is not allowed.
         return false;
       }
+      // return the first san with the 'spiffe://' prefix
+      for (const auto& san : sans) {
+        if (hasSPIFFEPrefix(san)) {
+          *principal = san;
+          return true;
+        }
+      }
+      // return the first san if no sans have the spiffe:// prefix
       *principal = sans[0];
       return true;
     }
@@ -53,9 +66,6 @@ bool getCertSAN(const Network::Connection* connection, bool peer,
   return false;
 }
 
-bool hasSPIFFEPrefix(const std::string& san) {
-  return absl::StartsWith(san, kSPIFFEPrefix);
-}
 }  // namespace
 
 void ExtractHeaders(const Http::HeaderMap& header_map,
@@ -125,7 +135,7 @@ bool GetIpPort(const Network::Address::Ip* ip, std::string* str_ip, int* port) {
   return false;
 }
 
-bool GetDestinationUID(const envoy::api::v2::core::Metadata& metadata,
+bool GetDestinationUID(const envoy::config::core::v3::Metadata& metadata,
                        std::string* uid) {
   const auto filter_it = metadata.filter_metadata().find(kPerHostMetadataKey);
   if (filter_it == metadata.filter_metadata().end()) {

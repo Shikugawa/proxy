@@ -15,10 +15,9 @@
 
 #include "src/envoy/tcp/tcp_cluster_rewrite/tcp_cluster_rewrite.h"
 
-#include "envoy/network/connection.h"
-
 #include "common/common/assert.h"
 #include "common/tcp_proxy/tcp_proxy.h"
+#include "envoy/network/connection.h"
 
 using namespace ::istio::envoy::config::filter::network::tcp_cluster_rewrite;
 
@@ -42,13 +41,13 @@ Network::FilterStatus TcpClusterRewriteFilter::onNewConnection() {
       read_callbacks_->connection()
           .streamInfo()
           .filterState()
-          .hasData<TcpProxy::PerConnectionCluster>(
+          ->hasData<TcpProxy::PerConnectionCluster>(
               TcpProxy::PerConnectionCluster::key())) {
     absl::string_view cluster_name =
         read_callbacks_->connection()
             .streamInfo()
             .filterState()
-            .getDataReadOnly<TcpProxy::PerConnectionCluster>(
+            ->getDataReadOnly<TcpProxy::PerConnectionCluster>(
                 TcpProxy::PerConnectionCluster::key())
             .value();
     ENVOY_CONN_LOG(trace,
@@ -64,12 +63,25 @@ Network::FilterStatus TcpClusterRewriteFilter::onNewConnection() {
                    "tcp_cluster_rewrite: final tcp proxy cluster name {}",
                    read_callbacks_->connection(), final_cluster_name);
 
-    // The data is mutable to allow other filters to change it.
-    read_callbacks_->connection().streamInfo().filterState().setData(
-        TcpProxy::PerConnectionCluster::key(),
-        std::make_unique<TcpProxy::PerConnectionCluster>(final_cluster_name),
-        StreamInfo::FilterState::StateType::Mutable);
+    try {
+      // The data is mutable to allow other filters to change it.
+      read_callbacks_->connection().streamInfo().filterState()->setData(
+          TcpProxy::PerConnectionCluster::key(),
+          std::make_unique<TcpProxy::PerConnectionCluster>(final_cluster_name),
+          StreamInfo::FilterState::StateType::Mutable,
+          StreamInfo::FilterState::LifeSpan::DownstreamConnection);
+    } catch (const EnvoyException& e) {
+      ENVOY_CONN_LOG(critical, "tcp_cluster_rewrite: error setting data: {}",
+                     read_callbacks_->connection(), e.what());
+      throw;
+    } catch (...) {
+      ENVOY_LOG(
+          critical,
+          "tcp_cluster_rewrite: error setting data due to unknown exception");
+      throw;
+    }
   }
+
   return Network::FilterStatus::Continue;
 }
 

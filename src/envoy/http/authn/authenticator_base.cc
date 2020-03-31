@@ -14,6 +14,7 @@
  */
 
 #include "src/envoy/http/authn/authenticator_base.h"
+
 #include "common/common/assert.h"
 #include "common/config/metadata.h"
 #include "src/envoy/http/authn/authn_utils.h"
@@ -73,7 +74,7 @@ bool AuthenticatorBase::validateTrustDomain(
     return false;
   }
 
-  ENVOY_CONN_LOG(error, "trust domain validation succeeded", *connection);
+  ENVOY_CONN_LOG(debug, "trust domain validation succeeded", *connection);
   return true;
 }
 

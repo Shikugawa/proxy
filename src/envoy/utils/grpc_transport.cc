@@ -13,6 +13,7 @@
  * limitations under the License.
  */
 #include "src/envoy/utils/grpc_transport.h"
+
 #include "absl/types/optional.h"
 #include "src/envoy/utils/header_update.h"
 
@@ -38,21 +39,29 @@ GrpcTransport<RequestType, ResponseType>::GrpcTransport(
     : async_client_(std::move(async_client)),
       response_(response),
       serialized_forward_attributes_(serialized_forward_attributes),
-      on_done_(on_done),
-      request_(async_client_->send(
-          descriptor(), request, *this, parent_span,
-          absl::optional<std::chrono::milliseconds>(kGrpcRequestTimeoutMs))) {
+      on_done_(on_done) {
   ENVOY_LOG(debug, "Sending {} request: {}", descriptor().name(),
             request.DebugString());
+  Envoy::Http::AsyncClient::RequestOptions options;
+  options.setTimeout(kGrpcRequestTimeoutMs);
+  Protobuf::RepeatedPtrField<envoy::config::route::v3::RouteAction::HashPolicy>
+      hash_policy;
+  hash_policy.Add()->mutable_header()->set_header_name(
+      kIstioAttributeHeader.get());
+  hash_policy.Add()->mutable_header()->set_header_name(
+      Envoy::Http::Headers::get().Host.get());
+  options.setHashPolicy(hash_policy);
+  request_ =
+      async_client_->send(descriptor(), request, *this, parent_span, options);
 }
 
 template <class RequestType, class ResponseType>
 void GrpcTransport<RequestType, ResponseType>::onCreateInitialMetadata(
-    Http::HeaderMap &metadata) {
+    Http::RequestHeaderMap &metadata) {
   // We generate cluster name contains invalid characters, so override the
   // authority header temorarily until it can be specified via CDS.
   // See https://github.com/envoyproxy/envoy/issues/3297 for details.
-  metadata.Host()->value("mixer", 5);
+  metadata.setHost(absl::string_view("mixer", 5));
 
   if (!serialized_forward_attributes_.empty()) {
     HeaderUpdate header_update_(&metadata);

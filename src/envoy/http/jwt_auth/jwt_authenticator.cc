@@ -14,6 +14,7 @@
  */
 
 #include "src/envoy/http/jwt_auth/jwt_authenticator.h"
+
 #include "common/http/message_impl.h"
 #include "common/http/utility.h"
 
@@ -54,7 +55,7 @@ JwtAuthenticator::JwtAuthenticator(Upstream::ClusterManager &cm,
     : cm_(cm), store_(store) {}
 
 // Verify a JWT token.
-void JwtAuthenticator::Verify(HeaderMap &headers,
+void JwtAuthenticator::Verify(RequestHeaderMap &headers,
                               JwtAuthenticator::Callbacks *callback) {
   headers_ = &headers;
   callback_ = callback;
@@ -144,11 +145,10 @@ void JwtAuthenticator::FetchPubkey(PubkeyCacheItem *issuer) {
   std::string host, path;
   ExtractUriHostPath(uri_, &host, &path);
 
-  MessagePtr message(new RequestMessageImpl());
-  message->headers().insertMethod().value().setReference(
-      Http::Headers::get().MethodValues.Get);
-  message->headers().insertPath().value(path);
-  message->headers().insertHost().value(host);
+  RequestMessagePtr message(new RequestMessageImpl());
+  message->headers().setReferenceMethod(Http::Headers::get().MethodValues.Get);
+  message->headers().setPath(path);
+  message->headers().setHost(host);
 
   const auto &cluster = issuer->jwt_config().remote_jwks().http_uri().cluster();
   if (cm_.get(cluster) == nullptr) {
@@ -161,7 +161,7 @@ void JwtAuthenticator::FetchPubkey(PubkeyCacheItem *issuer) {
       std::move(message), *this, Http::AsyncClient::RequestOptions());
 }
 
-void JwtAuthenticator::onSuccess(MessagePtr &&response) {
+void JwtAuthenticator::onSuccess(ResponseMessagePtr &&response) {
   request_ = nullptr;
   uint64_t status_code = Http::Utility::getResponseStatus(response->headers());
   if (status_code == 200) {

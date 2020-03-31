@@ -23,7 +23,7 @@ namespace Wasm {
 namespace Null {
 namespace Plugin {
 namespace Stackdriver {
-NullVmPluginRootRegistry* context_registry_{};
+NullPluginRegistry* context_registry_{};
 }  // namespace Stackdriver
 
 constexpr char kStackdriverPluginName[] = "envoy.wasm.null.stackdriver";
@@ -36,9 +36,9 @@ class StackdriverPluginFactory : public NullVmPluginFactory {
  public:
   StackdriverPluginFactory() {}
 
-  const std::string name() const override { return kStackdriverPluginName; }
+  std::string name() const override { return kStackdriverPluginName; }
   std::unique_ptr<NullVmPlugin> create() const override {
-    return std::make_unique<NullVmPlugin>(
+    return std::make_unique<NullPlugin>(
         Envoy::Extensions::Common::Wasm::Null::Plugin::Stackdriver::
             context_registry_);
   }

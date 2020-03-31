@@ -19,82 +19,101 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+
+	"strings"
 	"testing"
 	"time"
+
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/common/expfmt"
 )
 
 // TestSetup store data for a test.
 type TestSetup struct {
-	t     *testing.T
-	epoch int
-	ports *Ports
-
-	envoy             *Envoy
-	clientEnvoy       *Envoy
-	serverEnvoy       *Envoy
-	backend           *HTTPServer
-	tcpBackend        *TCPServer
-	testName          uint16
-	stress            bool
-	noProxy           bool
-	noBackend         bool
-	disableHotRestart bool
-	checkDict         bool
-	startTcpBackend   bool
-
-	FiltersBeforeMixer string
-
-	// ClientEnvoyTemplate is the bootstrap config used by client envoy.
-	ClientEnvoyTemplate string
-
-	// ServerEnvoyTemplate is the bootstrap config used by client envoy.
-	ServerEnvoyTemplate string
-
 	// EnvoyParams contain extra envoy parameters to pass in the CLI (cluster, node)
 	EnvoyParams []string
-
-	// EnvoyConfigOpt allows passing additional parameters to the EnvoyTemplate
-	EnvoyConfigOpt map[string]interface{}
-
+	// ClientEnvoyTemplate is the bootstrap config used by client envoy.
+	ClientEnvoyTemplate string
+	// ServerEnvoyTemplate is the bootstrap config used by server envoy.
+	ServerEnvoyTemplate string
 	// IstioSrc is the base directory of istio sources. May be set for finding testdata or
 	// other files in the source tree
 	IstioSrc string
-
 	// IstioOut is the base output directory.
 	IstioOut string
-
 	// AccessLogPath is the access log path for Envoy
 	AccessLogPath string
-
-	// AccessLogPath is the access log path for Envoy
+	// AccessLogPath is the access log path for the client Envoy
 	ClientAccessLogPath string
-
-	// AccessLogPath is the access log path for Envoy
+	// AccessLogPath is the access log path for the server Envoy
 	ServerAccessLogPath string
-
 	// FiltersBeforeEnvoyRouterInAppToClient are the filters that come before envoy.router http filter in AppToClient
 	// listener.
 	FiltersBeforeEnvoyRouterInAppToClient string
-
-	// FiltersBeforeEnvoyRouterInClientToProxy are the filters that come before envoy.router http filter in
-	// ClientToProxy listener.
-	FiltersBeforeEnvoyRouterInClientToProxy string
-
+	// FiltersBeforeHTTPConnectionManagerInProxyToServer are the filters that come before http connection manager filter
+	// ProxyToServer listener.
+	FiltersBeforeHTTPConnectionManagerInProxyToServer string
 	// FiltersBeforeEnvoyRouterInProxyToServer are the filters that come before envoy.router http filter in
 	// ProxyToServer listener.
 	FiltersBeforeEnvoyRouterInProxyToServer string
-
-	// FiltersBeforeEnvoyRouterInClientToApp are the filters that come before envoy.router http filter in ClientToApp
-	// listener.
-	FiltersBeforeEnvoyRouterInClientToApp string
-
 	// Dir is the working dir for envoy
 	Dir string
+	// Server side Envoy node metadata.
+	ServerNodeMetadata string
+	// Client side Envoy node metadata.
+	ClientNodeMetadata string
+	// Format for client accesslog
+	AccesslogFormat string
+	// Format for server accesslog
+	ServerAccesslogFormat string
+	// TLSContext to be used.
+	TLSContext string
+	// ClusterTLSContext to be used.
+	ClusterTLSContext string
+	// ServerTLSContext to be used.
+	ServerTLSContext string
+	// ServerClusterTLSContext to be used.
+	ServerClusterTLSContext string
+	// UpstreamFilters chain in client.
+	UpstreamFiltersInClient string
+	// ExtraConfig that needs to be passed to envoy. Ex stats_config.
+	ExtraConfig string
+
+	t           *testing.T
+	ports       *Ports
+	clientEnvoy *Envoy
+	serverEnvoy *Envoy
+	httpBackend *HTTPServer
+	tcpBackend  *TCPServer
+	epoch       int
+	// EnvoyConfigOpt allows passing additional parameters to the EnvoyTemplate
+	EnvoyConfigOpt map[string]interface{}
+	grpcBackend    *GRPCServer
+
+	testName          uint16
+	stress            bool
+	noProxy           bool
+	startHTTPBackend  bool
+	disableHotRestart bool
+	checkDict         bool
+	startTCPBackend   bool
+	copyYamlFiles     bool
+	EnableTLS         bool
+	startGRPCBackend  bool
+}
+
+// Stat represents a prometheus stat with labels.
+type Stat struct {
+	// Value of the metric
+	Value int
+	// Labels associated with the metric if any
+	Labels map[string]string
 }
 
 func NewClientServerEnvoyTestSetup(name uint16, t *testing.T) *TestSetup {
 	return &TestSetup{
 		t:                   t,
+		startHTTPBackend:    true,
 		ports:               NewPorts(name),
 		testName:            name,
 		ClientAccessLogPath: "/tmp/envoy-client-access.log",
@@ -127,14 +146,21 @@ func (s *TestSetup) SetNoProxy(no bool) {
 	s.noProxy = no
 }
 
-// SetNoBackend set NoBackend flag
-func (s *TestSetup) SetNoBackend(no bool) {
-	s.noBackend = no
+func (s *TestSetup) SetStartHTTPBackend(no bool) {
+	s.startHTTPBackend = no
 }
 
-// SetNoBackend set NoBackend flag
-func (s *TestSetup) SetStartTcpBackend(yes bool) {
-	s.startTcpBackend = yes
+func (s *TestSetup) SetStartGRPCBackend(yes bool) {
+	s.startGRPCBackend = yes
+}
+
+func (s *TestSetup) SetStartTCPBackend(yes bool) {
+	s.startTCPBackend = yes
+}
+
+// SetCopyYamlFiles set copyYamlFiles flag
+func (s *TestSetup) SetCopyYamlFiles(yes bool) {
+	s.copyYamlFiles = yes
 }
 
 // SetFiltersBeforeEnvoyRouterInAppToClient sets the configurations of the filters that come before envoy.router http
@@ -143,10 +169,29 @@ func (s *TestSetup) SetFiltersBeforeEnvoyRouterInAppToClient(filters string) {
 	s.FiltersBeforeEnvoyRouterInAppToClient = filters
 }
 
-// SetFiltersBeforeEnvoyRouterInClientToProxy sets the configurations of the filters that come before envoy.router http
-// filter in ClientToProxy listener.
-func (s *TestSetup) SetFiltersBeforeEnvoyRouterInClientToProxy(filters string) {
-	s.FiltersBeforeEnvoyRouterInClientToProxy = filters
+// SetEnableTLS sets EnableTLS.
+func (s *TestSetup) SetEnableTLS(enableTLS bool) {
+	s.EnableTLS = enableTLS
+}
+
+// SetTLSContext sets TLS COntext.
+func (s *TestSetup) SetTLSContext(tlsContext string) {
+	s.TLSContext = tlsContext
+}
+
+// SetTLSContext sets TLS COntext.
+func (s *TestSetup) SetClusterTLSContext(clusterTLSContext string) {
+	s.ClusterTLSContext = clusterTLSContext
+}
+
+// SetTLSContext sets TLS COntext.
+func (s *TestSetup) SetServerTLSContext(tlsContext string) {
+	s.ServerTLSContext = tlsContext
+}
+
+// SetTLSContext sets TLS COntext.
+func (s *TestSetup) SetServerClusterTLSContext(clusterTLSContext string) {
+	s.ServerClusterTLSContext = clusterTLSContext
 }
 
 // SetFiltersBeforeEnvoyRouterInProxyToServer sets the configurations of the filters tthat come before envoy.router http
@@ -155,10 +200,40 @@ func (s *TestSetup) SetFiltersBeforeEnvoyRouterInProxyToServer(filters string) {
 	s.FiltersBeforeEnvoyRouterInProxyToServer = filters
 }
 
-// SetFiltersBeforeEnvoyRouterInClientToApp sets the configurations of the filters that come before envoy.router http
-// filter in ClientToApp listener.
-func (s *TestSetup) SetFiltersBeforeEnvoyRouterInClientToApp(filters string) {
-	s.FiltersBeforeEnvoyRouterInClientToApp = filters
+// SetFiltersBeforeHTTPConnectionManagerInProxyToServer sets the configurations of the filters that come before http
+// connection manager filter in ProxyToServer listener.
+func (s *TestSetup) SeFiltersBeforeHTTPConnectionManagerInProxyToServer(filters string) {
+	s.FiltersBeforeHTTPConnectionManagerInProxyToServer = filters
+}
+
+// SetServerNodeMetadata sets envoy's node metadata.
+func (s *TestSetup) SetServerNodeMetadata(metadata string) {
+	s.ServerNodeMetadata = metadata
+}
+
+// SetClientNodeMetadata sets envoy's node metadata.
+func (s *TestSetup) SetClientNodeMetadata(metadata string) {
+	s.ClientNodeMetadata = metadata
+}
+
+// SetAccessLogFormat sets the accesslogformat.
+func (s *TestSetup) SetAccessLogFormat(accesslogformat string) {
+	s.AccesslogFormat = accesslogformat
+}
+
+// SetServerAccessLogFormat sets the serverAccesslogformat.
+func (s *TestSetup) SetServerAccessLogFormat(serverAccesslogformat string) {
+	s.ServerAccesslogFormat = serverAccesslogformat
+}
+
+// SetUpstreamFiltersInClient sets upstream filters chain in client envoy..
+func (s *TestSetup) SetUpstreamFiltersInClient(upstreamFiltersInClient string) {
+	s.UpstreamFiltersInClient = upstreamFiltersInClient
+}
+
+// SetExtraConfig sets extra config in client and server envoy.
+func (s *TestSetup) SetExtraConfig(extraConfig string) {
+	s.ExtraConfig = extraConfig
 }
 
 func (s *TestSetup) SetUpClientServerEnvoy() error {
@@ -190,19 +265,26 @@ func (s *TestSetup) SetUpClientServerEnvoy() error {
 		return err
 	}
 
-	if !s.noBackend {
-		s.backend, err = NewHTTPServer(s.ports.BackendPort)
+	if s.startHTTPBackend {
+		s.httpBackend, err = NewHTTPServer(s.ports.BackendPort, s.EnableTLS, s.Dir)
 		if err != nil {
 			log.Printf("unable to create HTTP server %v", err)
 		} else {
-			errCh := s.backend.Start()
+			errCh := s.httpBackend.Start()
 			if err = <-errCh; err != nil {
 				log.Fatalf("backend server start failed %v", err)
 			}
 		}
+	} else if s.startGRPCBackend {
+		s.grpcBackend = NewGRPCServer(s.Ports().BackendPort)
+		log.Printf("Starting GRPC echo server")
+		errCh := s.grpcBackend.Start()
+		if err := <-errCh; err != nil {
+			log.Fatalf("not able to start GRPC server: %v", err)
+		}
 	}
-	if s.startTcpBackend {
-		s.tcpBackend, err = NewTCPServer(s.ports.BackendPort, "hello")
+	if s.startTCPBackend {
+		s.tcpBackend, err = NewTCPServer(s.ports.BackendPort, "hello", s.EnableTLS, s.Dir)
 		if err != nil {
 			log.Printf("unable to create TCP server %v", err)
 		} else {
@@ -230,18 +312,21 @@ func (s *TestSetup) TearDownClientServerEnvoy() {
 	}
 	s.serverEnvoy.TearDown()
 
-	if s.backend != nil {
-		s.backend.Stop()
+	if s.httpBackend != nil {
+		s.httpBackend.Stop()
+	}
+	if s.grpcBackend != nil {
+		s.grpcBackend.Stop()
 	}
 	if s.tcpBackend != nil {
-		s.tcpBackend.Start()
+		s.tcpBackend.Stop()
 	}
 }
 
 // LastRequestHeaders returns last backend request headers
 func (s *TestSetup) LastRequestHeaders() http.Header {
-	if s.backend != nil {
-		return s.backend.LastRequestHeaders()
+	if s.httpBackend != nil {
+		return s.httpBackend.LastRequestHeaders()
 	}
 	return nil
 }
@@ -322,8 +407,8 @@ func (s *TestSetup) unmarshalStats(statsJSON string) map[string]int {
 	return statsMap
 }
 
-// VerifyStats verifies Envoy stats.
-func (s *TestSetup) VerifyStats(expectedStats map[string]int, port uint16) {
+// VerifyEnvoyStats verifies Envoy stats.
+func (s *TestSetup) VerifyEnvoyStats(expectedStats map[string]int, port uint16) {
 	s.t.Helper()
 
 	check := func(actualStatsMap map[string]int) error {
@@ -368,6 +453,84 @@ func (s *TestSetup) VerifyStats(expectedStats map[string]int, port uint16) {
 	s.t.Errorf("failed to find expected stats: %v", err)
 }
 
+// VerifyPrometheusStats verifies prometheus stats.
+func (s *TestSetup) VerifyPrometheusStats(expectedStats map[string]Stat, port uint16) {
+	s.t.Helper()
+
+	check := func(respBody string) error {
+		var parser expfmt.TextParser
+		reader := strings.NewReader(respBody)
+		mapMetric, err := parser.TextToMetricFamilies(reader)
+		if err != nil {
+			return err
+		}
+		for eStatsName, eStatsValue := range expectedStats {
+			aStats, ok := mapMetric[eStatsName]
+			if !ok {
+				return fmt.Errorf("failed to find expected stat %s", eStatsName)
+			}
+			var labels []*dto.LabelPair
+			var aStatsValue float64
+			switch aStats.GetType() {
+			case dto.MetricType_COUNTER:
+				if len(aStats.GetMetric()) != 1 {
+					return fmt.Errorf("expected one value for counter")
+				}
+				aStatsValue = aStats.GetMetric()[0].GetCounter().GetValue()
+				labels = aStats.GetMetric()[0].Label
+			case dto.MetricType_GAUGE:
+				if len(aStats.GetMetric()) != 1 {
+					return fmt.Errorf("expected one value for gauge")
+				}
+				aStatsValue = aStats.GetMetric()[0].GetGauge().GetValue()
+				labels = aStats.GetMetric()[0].Label
+			default:
+				return fmt.Errorf("need to implement this type %v", aStats.GetType())
+			}
+			if aStatsValue != float64(eStatsValue.Value) {
+				return fmt.Errorf("stats %s does not match. expected vs actual: %v vs %v",
+					eStatsName, eStatsValue, aStatsValue)
+			}
+			foundLabels := 0
+			for _, label := range labels {
+				v, found := eStatsValue.Labels[label.GetName()]
+				if !found {
+					continue
+				}
+				if v != label.GetValue() {
+					return fmt.Errorf("metric %v label %v differs got:%v, want: %v", eStatsName, label.GetName(), label.GetValue(), v)
+				}
+				foundLabels++
+			}
+			if foundLabels != len(eStatsValue.Labels) {
+				return fmt.Errorf("metrics %v, %d required labels missing", eStatsName, (len(eStatsValue.Labels) - foundLabels))
+			}
+		}
+		return nil
+	}
+
+	delay := 200 * time.Millisecond
+	total := 3 * time.Second
+
+	var err error
+	for attempt := 0; attempt < int(total/delay); attempt++ {
+		statsURL := fmt.Sprintf("http://localhost:%d/stats/prometheus", port)
+		code, respBody, errGet := HTTPGet(statsURL)
+		if errGet != nil {
+			log.Printf("sending stats request returns an error: %v", errGet)
+		} else if code != 200 {
+			log.Printf("sending stats request returns unexpected status code: %d", code)
+		} else {
+			if err = check(respBody); err == nil {
+				return
+			}
+			log.Printf("failed to verify stats: %v", err)
+		}
+		time.Sleep(delay)
+	}
+	s.t.Errorf("failed to find expected stats: %v", err)
+}
+
 // VerifyStatsLT verifies that Envoy stats contains stat expectedStat, whose value is less than
 // expectedStatVal.
 func (s *TestSetup) VerifyStatsLT(actualStats string, expectedStat string, expectedStatVal int) {
@@ -382,5 +545,11 @@ func (s *TestSetup) VerifyStatsLT(actualStats string, expectedStat string, expec
 			expectedStat, expectedStatVal, aStatsValue)
 	} else {
 		log.Printf("stat %s is matched. %d < %d", expectedStat, aStatsValue, expectedStatVal)
+	}
+}
+
+func (s *TestSetup) StopHTTPBackend() {
+	if s.httpBackend != nil {
+		s.httpBackend.Stop()
 	}
 }

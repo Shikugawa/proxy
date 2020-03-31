@@ -26,17 +26,6 @@ namespace Configuration {
 
 class FilterFactory : public NamedNetworkFilterConfigFactory {
  public:
-  Network::FilterFactoryCb createFilterFactory(
-      const Json::Object& config_json, FactoryContext& context) override {
-    TcpClientConfig config_pb;
-    if (!Utils::ReadV2Config(config_json, &config_pb) &&
-        !Utils::ReadV1Config(config_json, &config_pb)) {
-      throw EnvoyException("Failed to parse JSON config");
-    }
-
-    return createFilterFactory(config_pb, context);
-  }
-
   Network::FilterFactoryCb createFilterFactoryFromProto(
       const Protobuf::Message& config, FactoryContext& context) override {
     return createFilterFactory(dynamic_cast<const TcpClientConfig&>(config),
@@ -47,7 +36,7 @@ class FilterFactory : public NamedNetworkFilterConfigFactory {
     return ProtobufTypes::MessagePtr{new TcpClientConfig};
   }
 
-  std::string name() override { return "mixer"; }
+  std::string name() const override { return "mixer"; }
 
  private:
   Network::FilterFactoryCb createFilterFactory(const TcpClientConfig& config_pb,

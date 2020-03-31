@@ -14,6 +14,7 @@
  */
 
 #include "src/envoy/utils/authn.h"
+
 #include "common/common/base64.h"
 #include "include/istio/utils/attribute_names.h"
 #include "src/envoy/utils/filter_names.h"
@@ -80,7 +81,7 @@ void Authentication::SaveAuthAttributesToStruct(
 }
 
 const ProtobufWkt::Struct* Authentication::GetResultFromMetadata(
-    const envoy::api::v2::core::Metadata& metadata) {
+    const envoy::config::core::v3::Metadata& metadata) {
   const auto& iter =
       metadata.filter_metadata().find(Utils::IstioFilterName::kAuthentication);
   if (iter == metadata.filter_metadata().end()) {

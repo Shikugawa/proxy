@@ -14,9 +14,10 @@
  */
 
 #include "src/envoy/http/authn/origin_authenticator.h"
+
 #include "authentication/v1alpha1/policy.pb.h"
 #include "common/protobuf/protobuf.h"
-#include "envoy/api/v2/core/base.pb.h"
+#include "envoy/config/core/v3/base.pb.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "src/envoy/http/authn/test_utils.h"
@@ -100,6 +101,20 @@ const char kSingleOriginMethodWithTriggerRulePolicy[] = R"(
   }
 )";
 
+const char kSingleOriginMethodWithExcludeTriggerRulePolicy[] = R"(
+  principal_binding: USE_ORIGIN
+  origins {
+    jwt {
+      issuer: "abc.xyz"
+      trigger_rules: {
+        excluded_paths: {
+          exact: "/login"
+        }
+      }
+    }
+  }
+)";
+
 const char kMultipleOriginMethodWithTriggerRulePolicy[] = R"(
   principal_binding: USE_ORIGIN
   origins {
@@ -176,10 +191,10 @@ class OriginAuthenticatorTest : public testing::TestWithParam<bool> {
 
  protected:
   std::unique_ptr<StrictMock<MockOriginAuthenticator>> authenticator_;
-  // envoy::api::v2::core::Metadata metadata_;
-  Envoy::Http::TestHeaderMapImpl header_{};
+  // envoy::config::core::v3::Metadata metadata_;
+  Envoy::Http::TestRequestHeaderMapImpl header_{};
   FilterContext filter_context_{
-      envoy::api::v2::core::Metadata::default_instance(), header_, nullptr,
+      envoy::config::core::v3::Metadata::default_instance(), header_, nullptr,
       istio::envoy::config::filter::http::authn::v2alpha1::FilterConfig::
           default_instance()};
   iaapi::Policy policy_;
@@ -204,6 +219,10 @@ class OriginAuthenticatorTest : public testing::TestWithParam<bool> {
   void setPath(const std::string& path) {
     header_.removePath();
     header_.addCopy(":path", path);
+  }
+
+  void addHeader(const std::string& key, const std::string& value) {
+    header_.addCopy(key, value);
   }
 };
 
@@ -277,6 +296,20 @@ TEST_P(OriginAuthenticatorTest, SingleMethodFail) {
                                       filter_context_.authenticationResult()));
 }
 
+TEST_P(OriginAuthenticatorTest, CORSPreflight) {
+  ASSERT_TRUE(Protobuf::TextFormat::ParseFromString(kSingleOriginMethodPolicy,
+                                                    &policy_));
+
+  createAuthenticator();
+
+  EXPECT_CALL(*authenticator_, validateJwt(_, _)).Times(0);
+
+  addHeader(":method", "OPTIONS");
+  addHeader("origin", "example.com");
+  addHeader("access-control-request-method", "GET");
+  EXPECT_TRUE(authenticator_->run(payload_));
+}
+
 TEST_P(OriginAuthenticatorTest, TriggeredWithNullPath) {
   ASSERT_TRUE(Protobuf::TextFormat::ParseFromString(
       kSingleOriginMethodWithTriggerRulePolicy, &policy_));
@@ -308,15 +341,60 @@ TEST_P(OriginAuthenticatorTest, SingleRuleTriggered) {
                                       filter_context_.authenticationResult()));
 }
 
+TEST_P(OriginAuthenticatorTest, SingleRuleTriggeredWithComponents) {
+  const std::vector<std::string> input_paths{"/allow?",
+                                             "/allow?a=b&c=d",
+                                             "/allow??",
+                                             "/allow??",
+                                             "/allow?#",
+                                             "/allow#?",
+                                             "/allow#a",
+                                             "/allow#$"
+                                             "/allow?a=b#c",
+                                             "/allow#a?b=c"};
+  for (const auto& path : input_paths) {
+    ASSERT_TRUE(Protobuf::TextFormat::ParseFromString(
+        kSingleOriginMethodWithTriggerRulePolicy, &policy_));
+
+    createAuthenticator();
+
+    EXPECT_CALL(*authenticator_, validateJwt(_, _))
+        .Times(1)
+        .WillOnce(DoAll(SetArgPointee<1>(jwt_payload_), Return(true)));
+
+    setPath(path);
+    EXPECT_TRUE(authenticator_->run(payload_));
+    EXPECT_TRUE(TestUtility::protoEqual(
+        expected_result_when_pass_, filter_context_.authenticationResult()));
+  }
+}
+
 TEST_P(OriginAuthenticatorTest, SingleRuleNotTriggered) {
+  const std::vector<std::string> input_paths{"/bad", "/allow$?", "/allow$#"};
+  for (const auto& path : input_paths) {
+    ASSERT_TRUE(Protobuf::TextFormat::ParseFromString(
+        kSingleOriginMethodWithTriggerRulePolicy, &policy_));
+
+    createAuthenticator();
+
+    EXPECT_CALL(*authenticator_, validateJwt(_, _)).Times(0);
+
+    setPath(path);
+    EXPECT_TRUE(authenticator_->run(payload_));
+    EXPECT_TRUE(TestUtility::protoEqual(
+        initial_result_, filter_context_.authenticationResult()));
+  }
+}
+
+TEST_P(OriginAuthenticatorTest, SingleExcludeRuleTriggeredWithQueryParam) {
   ASSERT_TRUE(Protobuf::TextFormat::ParseFromString(
-      kSingleOriginMethodWithTriggerRulePolicy, &policy_));
+      kSingleOriginMethodWithExcludeTriggerRulePolicy, &policy_));
 
   createAuthenticator();
 
   EXPECT_CALL(*authenticator_, validateJwt(_, _)).Times(0);
 
-  setPath("/bad");
+  setPath("/login?a=b&c=d");
   EXPECT_TRUE(authenticator_->run(payload_));
   EXPECT_TRUE(TestUtility::protoEqual(initial_result_,
                                       filter_context_.authenticationResult()));

@@ -14,6 +14,7 @@
  */
 
 #include "src/envoy/utils/mixer_control.h"
+
 #include "fmt/printf.h"
 #include "mixer/v1/config/client/client_config.pb.h"
 #include "src/envoy/utils/utils.h"
@@ -101,7 +102,7 @@ TEST(MixerControlTest, WithMetadata) {
   LocalNode lexp;
   initTestLocalNode(&lexp);
 
-  envoy::api::v2::core::Node node;
+  envoy::config::core::v3::Node node;
   auto status =
       ParseJsonMessage(genNodeConfig("new_id", lexp.uid, lexp.ns), &node);
   EXPECT_OK(status) << status;
@@ -116,7 +117,7 @@ TEST(MixerControlTest, NoMetadata) {
   LocalNode lexp;
   initTestLocalNode(&lexp);
 
-  envoy::api::v2::core::Node node;
+  envoy::config::core::v3::Node node;
   auto status = ParseJsonMessage(genNodeConfig(kNodeID, "", ""), &node);
   EXPECT_OK(status) << status;
 

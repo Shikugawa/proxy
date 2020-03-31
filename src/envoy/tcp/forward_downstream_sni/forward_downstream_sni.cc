@@ -13,10 +13,10 @@
  * limitations under the License.
  */
 
-#include "envoy/network/connection.h"
+#include "src/envoy/tcp/forward_downstream_sni/forward_downstream_sni.h"
 
 #include "common/network/upstream_server_name.h"
-#include "src/envoy/tcp/forward_downstream_sni/forward_downstream_sni.h"
+#include "envoy/network/connection.h"
 
 namespace Envoy {
 namespace Tcp {
@@ -28,7 +28,7 @@ Network::FilterStatus ForwardDownstreamSniFilter::onNewConnection() {
   absl::string_view sni = read_callbacks_->connection().requestedServerName();
 
   if (!sni.empty()) {
-    read_callbacks_->connection().streamInfo().filterState().setData(
+    read_callbacks_->connection().streamInfo().filterState()->setData(
         UpstreamServerName::key(), std::make_unique<UpstreamServerName>(sni),
         StreamInfo::FilterState::StateType::ReadOnly);
   }
