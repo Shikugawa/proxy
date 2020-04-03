@@ -11,10 +11,10 @@ envoy_package()
 envoy_cc_library(
     name = "authn_wasm_lib",
     srcs = [
-        "config.cc",
+        "filter.cc",
     ],
     hdrs = [
-        "config.h",
+        "filter.h",
     ],
     repository = "@envoy",
     visibility = ["//visibility:public"],
